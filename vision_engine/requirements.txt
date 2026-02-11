@@ -2,3 +2,6 @@ ultralytics
 opencv-python-headless
 numpy
 matplotlib
+fastapi
+uvicorn
+python-multipart
