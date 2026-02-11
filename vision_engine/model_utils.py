@@ -15,13 +15,14 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 def train_model(
     data_yaml: str = DATASET_YAML,
     base_weights: str = DEFAULT_WEIGHTS,
-    epochs: int = 10,
+    epochs: int = 50,
     imgsz: int = 640,
     device: str = DEFAULT_DEVICE,
+    patience: int = 10,
 ) -> YOLO:
     print("[INFO] Starting fine-tune...")
     model = YOLO(base_weights)
-    model.train(data=data_yaml, epochs=epochs, imgsz=imgsz, device=device)
+    model.train(data=data_yaml, epochs=epochs, imgsz=imgsz, device=device, patience=patience)
     print("[INFO] Training complete.")
     return model
 
