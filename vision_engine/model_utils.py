@@ -5,9 +5,9 @@ from ultralytics import YOLO
 
 DATASET_YAML = "datasets/data.yaml"
 OUTPUT_DIR = "evidencias"
-DEFAULT_WEIGHTS = "../runs/detect/train3/weights/best.pt"
+DEFAULT_WEIGHTS = "../runs/detect/train4/weights/best.pt"
 DEFAULT_DEVICE = "cpu"  # Forzar CPU por incompatibilidad de la GPU MX350 con el build de PyTorch
-DANGERS = ["fire", "smoke", "person"]
+DANGERS = ["fire", "smoke", "person"]  # case-insensitive comparison
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -48,6 +48,29 @@ def load_model(
     return model
 
 
+def analyse_frame(model: YOLO, frame) -> List[Dict]:
+    """Analyse a raw BGR numpy frame (from cv2.VideoCapture) and return detections."""
+    detections: List[Dict] = []
+    results = model(frame, verbose=False)
+    for r in results:
+        for box in r.boxes:
+            cls_id = int(box.cls[0])
+            class_name = model.names[cls_id]
+            if class_name.lower() not in DANGERS:
+                continue
+            conf = float(box.conf[0]) if box.conf is not None else 0.0
+            xyxy = box.xyxy[0].tolist()
+            bbox = [float(coord) for coord in xyxy]
+            detections.append(
+                {
+                    "class": class_name,
+                    "confidence": round(conf, 3),
+                    "bbox": [round(coord, 2) for coord in bbox],
+                }
+            )
+    return detections
+
+
 def analyse_image(model: YOLO, image_path: str) -> List[Dict[str, float]]:
     detections: List[Dict[str, float]] = []
     results = model(image_path)
@@ -56,7 +79,7 @@ def analyse_image(model: YOLO, image_path: str) -> List[Dict[str, float]]:
         for box in r.boxes:
             cls_id = int(box.cls[0])
             class_name = model.names[cls_id]
-            if class_name not in DANGERS:
+            if class_name.lower() not in DANGERS:
                 continue
             conf = float(box.conf[0]) if box.conf is not None else 0.0
             xyxy = box.xyxy[0].tolist()
