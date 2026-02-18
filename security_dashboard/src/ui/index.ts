@@ -8,13 +8,14 @@ export const mountApp = (app: HTMLElement): UIRefs => {
   const dropArea = document.querySelector<HTMLDivElement>("#drop-area");
   const browseBtn = document.querySelector<HTMLButtonElement>("#browse-btn");
   const previewImg = document.querySelector<HTMLImageElement>("#preview");
+  const previewVideo = document.querySelector<HTMLVideoElement>("#preview-video");
   const previewContainer = document.querySelector<HTMLDivElement>("#preview-container");
   const overlayLayer = document.querySelector<HTMLDivElement>("#box-overlay");
   const resultsBox = document.querySelector<HTMLDivElement>("#results");
   const statusText = document.querySelector<HTMLSpanElement>("#status");
   const loader = document.querySelector<HTMLDivElement>("#loader");
 
-  if (!fileInput || !dropArea || !browseBtn || !previewImg || !previewContainer || !overlayLayer || !resultsBox || !statusText || !loader) {
+  if (!fileInput || !dropArea || !browseBtn || !previewImg || !previewVideo || !previewContainer || !overlayLayer || !resultsBox || !statusText || !loader) {
     throw new Error("UI elements missing");
   }
 
@@ -23,6 +24,7 @@ export const mountApp = (app: HTMLElement): UIRefs => {
     dropArea,
     browseBtn,
     previewImg,
+    previewVideo,
     previewContainer,
     overlayLayer,
     resultsBox,
@@ -32,6 +34,6 @@ export const mountApp = (app: HTMLElement): UIRefs => {
 };
 
 export { setStatus } from "./components/status";
-export { showPreview } from "./components/preview";
-export { drawOverlayBoxes } from "./components/overlay";
+export { showPreview, showVideoPreview } from "./components/preview";
+export { drawOverlayBoxes, drawOverlayBoxesOnVideo } from "./components/overlay";
 export { renderDetections } from "./components/results";

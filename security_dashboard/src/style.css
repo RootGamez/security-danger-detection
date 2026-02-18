@@ -38,14 +38,16 @@ body {
   animation: spin 0.9s linear infinite;
 }
 
-#box-overlay {
-  @apply absolute inset-0 pointer-events-none;
-  z-index: 10;
+#preview-container {
+  min-height: 800px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .overlay-marker {
   position: absolute;
-  border-width: 2px;
+  border-width: 3px;
   border-style: solid;
   border-radius: 0.85rem;
   pointer-events: none;
@@ -53,9 +55,9 @@ body {
 }
 
 .overlay-marker span {
-  @apply text-[0.6rem] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full absolute -top-7 left-0;
-  background-color: rgba(15, 23, 42, 0.85);
-  border-width: 1px;
+  @apply text-sm font-bold uppercase tracking-wider px-3 py-1 rounded-lg absolute -top-8 left-0;
+  background-color: rgba(15, 23, 42, 0.92);
+  border-width: 2px;
   z-index: 30;
 }
 

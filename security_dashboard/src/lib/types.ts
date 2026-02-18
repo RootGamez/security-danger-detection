@@ -3,3 +3,8 @@ export type DetectionPayload = {
   confidence: number;
   bbox: [number, number, number, number];
 };
+
+export type VideoFramePayload = {
+  t: number;
+  detections: DetectionPayload[];
+};

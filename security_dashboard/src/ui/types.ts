@@ -3,6 +3,7 @@ export type UIRefs = {
   dropArea: HTMLDivElement;
   browseBtn: HTMLButtonElement;
   previewImg: HTMLImageElement;
+  previewVideo: HTMLVideoElement;
   previewContainer: HTMLDivElement;
   overlayLayer: HTMLDivElement;
   resultsBox: HTMLDivElement;
