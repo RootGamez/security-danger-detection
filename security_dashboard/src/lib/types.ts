@@ -8,3 +8,7 @@ export type VideoFramePayload = {
   t: number;
   detections: DetectionPayload[];
 };
+
+export type WebcamFramePayload = VideoFramePayload & {
+  frame?: string;
+};

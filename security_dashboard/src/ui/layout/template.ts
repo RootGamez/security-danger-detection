@@ -1,49 +1,72 @@
 export const template = `
-  <div class="relative overflow-hidden min-h-screen flex flex-col">
-    <div class="absolute -top-24 -left-20 h-64 w-64 rounded-full bg-accent-600/20 blur-3xl"></div>
-    <div class="absolute -bottom-20 -right-24 h-72 w-72 rounded-full bg-accent-500/25 blur-3xl"></div>
-    <div class="relative flex-1 max-w-7xl mx-auto w-full px-4 py-6">
-      <header class="mb-6 flex flex-col gap-2 text-center">
-        <span class="badge bg-white/10 text-xs uppercase tracking-[0.2em] self-center">vigilancia</span>
-        <h1 class="text-3xl md:text-4xl font-display text-white">Deteccion de fuego, humo y personas</h1>
-      </header>
+  <div class="app-shell">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-icon">🛡️</div>
+        <div>
+          <p class="brand-title">SecureVision</p>
+          <p class="brand-sub">Detección en tiempo real</p>
+        </div>
+      </div>
 
-      <div class="glass-card rounded-3xl p-6 shadow-2xl h-full flex flex-col">
-        <div class="flex flex-col lg:flex-row gap-4 h-full">
-          <!-- Control Panel -->
-          <div class="lg:w-80 flex flex-col gap-4">
-            <div id="drop-area" class="drop-area text-center">
-              <input id="file-input" type="file" accept="image/*,video/mp4,video/avi,video/quicktime,video/webm,video/x-matroska,video/mpeg,.mkv,.avi,.mov" class="hidden" />
-              <div class="flex flex-col items-center gap-3">
-                <div class="w-14 h-14 rounded-2xl bg-accent-500/15 flex items-center justify-center">
-                  <span class="text-2xl">📷</span>
-                </div>
-                <p class="font-semibold">Arrastra o suelta</p>
-                <p class="text-xs text-slate-300">JPG, PNG, BMP, WEBP · MP4, AVI, MOV, MKV, WEBM</p>
-                <button id="browse-btn" class="button-primary text-sm">Elegir archivo</button>
-              </div>
-            </div>
-            <div class="flex items-center gap-3 text-sm text-slate-300">
-              <span class="loader hidden" id="loader"></span>
-              <span id="status">Esperando archivo...</span>
-            </div>
-            <div class="bg-white/5 border border-white/10 rounded-2xl p-4 flex-1 overflow-y-auto">
-              <p class="text-sm text-slate-400 mb-3 font-semibold">Resultados</p>
-              <div id="results" class="space-y-2 text-sm"></div>
-            </div>
-          </div>
+      <!-- Upload drop area -->
+      <div id="drop-area" class="drop-area">
+        <input id="file-input" type="file" accept="image/*,video/mp4,video/avi,video/quicktime,video/webm,video/x-matroska,video/mpeg,.mkv,.avi,.mov" class="hidden" />
+        <div class="drop-icon">📂</div>
+        <p class="drop-label">Arrastra imagen o video</p>
+        <p class="drop-hint">JPG · PNG · MP4 · AVI · MOV · WEBM</p>
+      </div>
 
-          <!-- Preview Panel -->
-          <div class="flex-1 min-h-0">
-            <div id="preview-container" class="bg-white/5 border border-white/10 rounded-2xl p-4 h-full flex items-center justify-center overflow-hidden relative">
-              <div id="box-overlay" class="absolute inset-0 pointer-events-none"></div>
-              <span class="text-slate-400 text-sm absolute z-0">Vista previa</span>
-              <img id="preview" src="" alt="preview" class="hidden max-w-full max-h-full w-auto h-auto object-contain z-5" />
-              <video id="preview-video" class="hidden max-w-full max-h-full w-auto h-auto object-contain z-5" controls></video>
-            </div>
+      <!-- Action buttons -->
+      <div class="action-group">
+        <button id="browse-btn" class="btn btn-primary">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          Elegir archivo
+        </button>
+        <button id="webcam-btn" class="btn btn-accent">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M20.188 10.934c.2.55.312 1.143.312 1.734 0 3.314-2.686 6-6 6H9.5a6 6 0 1 1 0-12h5a6 6 0 0 1 6 6z"/></svg>
+          Usar camara
+        </button>
+      </div>
+
+      <!-- YouTube accordion -->
+      <div class="yt-section">
+        <button id="yt-toggle" class="yt-toggle" aria-expanded="false">
+          <svg width="16" height="16" fill="#ff0000" viewBox="0 0 24 24"><path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-2.13 4.83 4.83 0 0 1-3.82 2.13 4.83 4.83 0 0 1-3.82-2.13 4.83 4.83 0 0 1-3.77 2.13C3.5 6.69 2 8.44 2 12s1.5 5.31 2.41 5.31a4.83 4.83 0 0 1 3.77-2.13 4.83 4.83 0 0 1 3.82 2.13 4.83 4.83 0 0 1 3.82-2.13 4.83 4.83 0 0 1 3.77 2.13C21.5 17.31 22 15.56 22 12s-.5-5.31-1.41-5.31z"/></svg>
+          Analizar YouTube
+          <svg id="yt-chevron" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="margin-left:auto;transition:transform .2s"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div id="yt-panel" class="yt-panel" style="max-height:0;overflow:hidden;transition:max-height .25s ease">
+          <div class="yt-input-row">
+            <input id="yt-input" type="text" placeholder="https://youtube.com/watch?v=..." class="yt-input" />
+            <button id="yt-btn" class="btn btn-yt">Analizar</button>
           </div>
         </div>
       </div>
-    </div>
+
+      <!-- Status -->
+      <div class="status-bar">
+        <span class="loader hidden" id="loader"></span>
+        <span id="status" class="status-text">Esperando...</span>
+      </div>
+
+      <!-- Results -->
+      <div class="results-panel">
+        <p class="results-title">Detecciones</p>
+        <div id="results" class="results-list"></div>
+      </div>
+    </aside>
+
+    <!-- Main preview -->
+    <main class="preview-main">
+      <div id="preview-container" class="preview-container">
+        <div id="box-overlay" class="box-overlay"></div>
+        <span id="preview-placeholder" class="preview-placeholder">Vista previa</span>
+        <img id="preview" src="" alt="preview" class="preview-media hidden" />
+        <video id="preview-video" class="preview-media hidden" controls></video>
+        <canvas id="webcam-canvas" class="preview-media hidden"></canvas>
+      </div>
+    </main>
   </div>
 `;

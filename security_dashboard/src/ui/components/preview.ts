@@ -2,7 +2,7 @@ import type { UIRefs } from "../types";
 
 export const showPreview = (refs: UIRefs, file: File) => {
   const url = URL.createObjectURL(file);
-  // Hide video, show image
+  refs.webcamCanvas.classList.add("hidden");
   refs.previewVideo.classList.add("hidden");
   refs.previewVideo.src = "";
   refs.previewImg.src = url;
@@ -13,7 +13,7 @@ export const showPreview = (refs: UIRefs, file: File) => {
 
 export const showVideoPreview = (refs: UIRefs, file: File): string => {
   const url = URL.createObjectURL(file);
-  // Hide image, show video
+  refs.webcamCanvas.classList.add("hidden");
   refs.previewImg.classList.add("hidden");
   refs.previewImg.src = "";
   refs.previewVideo.src = url;

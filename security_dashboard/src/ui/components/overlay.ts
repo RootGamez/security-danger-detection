@@ -2,7 +2,7 @@ import type { DetectionPayload } from "../../lib/types";
 import type { UIRefs } from "../types";
 
 const colorForClass = (cls: string) => {
-  if (cls === "fire") return "#fb7185";
+  if (cls === "fire") return "#f87171";
   if (cls === "smoke") return "#94a3b8";
   return "#34d399";
 };
@@ -49,7 +49,6 @@ export const drawOverlayBoxes = (refs: UIRefs, detections: DetectionPayload[]) =
   const scaleX = refs.previewImg.clientWidth / refs.previewImg.naturalWidth;
   const scaleY = refs.previewImg.clientHeight / refs.previewImg.naturalHeight;
 
-  // Center offset: image uses object-contain so may have letterboxing
   const containerRect = refs.previewContainer.getBoundingClientRect();
   const imgRect = refs.previewImg.getBoundingClientRect();
   const offsetX = imgRect.left - containerRect.left;
@@ -67,11 +66,27 @@ export const drawOverlayBoxesOnVideo = (refs: UIRefs, detections: DetectionPaylo
   const scaleX = refs.previewVideo.clientWidth / refs.previewVideo.videoWidth;
   const scaleY = refs.previewVideo.clientHeight / refs.previewVideo.videoHeight;
 
-  // Center offset for letterboxing
   const containerRect = refs.previewContainer.getBoundingClientRect();
   const vidRect = refs.previewVideo.getBoundingClientRect();
   const offsetX = vidRect.left - containerRect.left;
   const offsetY = vidRect.top - containerRect.top;
+
+  detections.forEach((d) => {
+    refs.overlayLayer.appendChild(buildBox(d, scaleX, scaleY, offsetX, offsetY));
+  });
+};
+
+export const drawOverlayBoxesOnCanvas = (refs: UIRefs, detections: DetectionPayload[]) => {
+  refs.overlayLayer.innerHTML = "";
+  if (!refs.webcamCanvas.width || !refs.webcamCanvas.height || detections.length === 0) return;
+
+  const containerRect = refs.previewContainer.getBoundingClientRect();
+  const canvasRect = refs.webcamCanvas.getBoundingClientRect();
+  const offsetX = canvasRect.left - containerRect.left;
+  const offsetY = canvasRect.top - containerRect.top;
+
+  const scaleX = canvasRect.width / refs.webcamCanvas.width;
+  const scaleY = canvasRect.height / refs.webcamCanvas.height;
 
   detections.forEach((d) => {
     refs.overlayLayer.appendChild(buildBox(d, scaleX, scaleY, offsetX, offsetY));

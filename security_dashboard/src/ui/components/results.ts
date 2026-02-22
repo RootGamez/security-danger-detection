@@ -2,25 +2,31 @@ import type { DetectionPayload } from "../../lib/types";
 import type { UIRefs } from "../types";
 import { drawOverlayBoxes } from "./overlay";
 
+const colorForClass = (cls: string) => {
+  if (cls === "fire") return "#f87171";
+  if (cls === "smoke") return "#94a3b8";
+  return "#34d399";
+};
+
 export const renderDetections = (refs: UIRefs, detections: DetectionPayload[]) => {
   if (detections.length === 0) {
-    refs.resultsBox.innerHTML = '<p class="text-slate-300">Sin detecciones.</p>';
+    refs.resultsBox.innerHTML = '<p style="font-size:.78rem;color:#475569;padding:6px 0">Sin detecciones.</p>';
     refs.overlayLayer.innerHTML = "";
     return;
   }
 
   refs.resultsBox.innerHTML = detections
-    .map(
-      (d) => `
-        <div class="flex items-center justify-between bg-white/5 border border-white/10 rounded-xl px-3 py-2">
-          <div class="flex items-center gap-2">
-            <span class="w-2 h-2 rounded-full bg-accent-500"></span>
-            <span class="capitalize">${d.class}</span>
+    .map((d) => {
+      const color = colorForClass(d.class);
+      return `
+        <div class="detection-card">
+          <div class="detection-label">
+            <span class="detection-dot" style="background:${color}"></span>
+            <span style="text-transform:capitalize;font-weight:600">${d.class}</span>
           </div>
-          <span class="text-slate-200 text-xs">Conf: ${(d.confidence * 100).toFixed(1)}%</span>
-        </div>
-      `
-    )
+          <span class="detection-conf">${(d.confidence * 100).toFixed(1)}%</span>
+        </div>`;
+    })
     .join("");
 
   drawOverlayBoxes(refs, detections);
