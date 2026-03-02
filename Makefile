@@ -1,9 +1,9 @@
 # Makefile para el dashboard (frontend)
 
-.PHONY: dashboard-install dashboard-dev
+.PHONY: install dev
 
-dashboard-install:
+install:
 	cd security_dashboard && npm install
 
-dashboard-dev:
+dev:
 	cd security_dashboard && npm run dev
