@@ -1,12 +1,7 @@
-import type { DetectionPayload } from "../../lib/types";
-import type { UIRefs } from "../types";
+import type { DetectionPayload } from "../../types/domain";
+import type { UIRefs } from "../refs";
 import { drawOverlayBoxes } from "./overlay";
-
-const colorForClass = (cls: string) => {
-  if (cls === "fire") return "#f87171";
-  if (cls === "smoke") return "#94a3b8";
-  return "#34d399";
-};
+import { colorForClass } from "../utils/colors";
 
 export const renderDetections = (refs: UIRefs, detections: DetectionPayload[]) => {
   if (detections.length === 0) {

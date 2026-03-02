@@ -1,4 +1,18 @@
-import type { UIRefs } from "../types";
+import type { UIRefs } from "../refs";
+
+/**
+ * Hides all media elements and clears the overlay.
+ * Typically called before switching to a new media source.
+ */
+export const resetPreview = (refs: UIRefs): void => {
+  refs.previewVideo.classList.add("hidden");
+  refs.previewVideo.src = "";
+  refs.webcamCanvas.classList.add("hidden");
+  refs.previewImg.classList.add("hidden");
+  refs.previewImg.src = "";
+  refs.overlayLayer.innerHTML = "";
+  refs.previewContainer.querySelector("#preview-placeholder")?.classList.add("hidden");
+};
 
 export const showPreview = (refs: UIRefs, file: File) => {
   const url = URL.createObjectURL(file);

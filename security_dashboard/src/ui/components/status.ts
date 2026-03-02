@@ -1,4 +1,4 @@
-import type { UIRefs } from "../types";
+import type { UIRefs } from "../refs";
 
 export const setStatus = (refs: UIRefs, text: string, loading = false) => {
   refs.statusText.textContent = text;
