@@ -45,6 +45,21 @@ export const template = `
         </div>
       </div>
 
+      <!-- Camera URL accordion -->
+      <div class="cam-section">
+        <button id="cam-toggle" class="cam-toggle" aria-expanded="false">
+          <svg width="16" height="16" fill="none" stroke="#06b6d4" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="5" width="15" height="14" rx="2"/><path d="M22 7l-5 3.5L22 14z"/></svg>
+          Cámara por URL
+          <svg id="cam-chevron" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="margin-left:auto;transition:transform .2s"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div id="cam-panel" class="cam-panel" style="max-height:0;overflow:hidden;transition:max-height .25s ease">
+          <div class="cam-input-row">
+            <input id="cam-input" type="text" placeholder="http://192.168.1.50:4747/video" class="cam-input" />
+            <button id="cam-btn" class="btn btn-cam">Conectar</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Status -->
       <div class="status-bar">
         <span class="loader hidden" id="loader"></span>

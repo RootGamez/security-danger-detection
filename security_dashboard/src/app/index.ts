@@ -2,6 +2,7 @@ import { streamVideoDetections, streamWebcamDetections, streamYoutubeDetections,
 import type { DetectionPayload } from "../lib/types";
 import type { VideoFramePayload } from "../lib/types";
 import type { WebcamFramePayload } from "../lib/types";
+import { getDetectionCount, getDetectionArray } from "../lib/types";
 import {
   drawOverlayBoxes,
   drawOverlayBoxesOnCanvas,
@@ -98,7 +99,7 @@ export const initApp = () => {
     const tick = () => {
       if (!refs.previewVideo.paused && !refs.previewVideo.ended) {
         const frame = findFrame(refs.previewVideo.currentTime);
-        if (frame) drawOverlayBoxesOnVideo(refs, frame.detections);
+        if (frame) drawOverlayBoxesOnVideo(refs, getDetectionArray(frame.detections));
         else refs.overlayLayer.innerHTML = "";
       }
       rafId = requestAnimationFrame(tick);
@@ -109,7 +110,7 @@ export const initApp = () => {
   // Also update boxes when the user scrubs manually (seeking)
   refs.previewVideo.addEventListener("seeked", () => {
     const frame = findFrame(refs.previewVideo.currentTime);
-    drawOverlayBoxesOnVideo(refs, frame?.detections ?? []);
+    drawOverlayBoxesOnVideo(refs, getDetectionArray(frame?.detections ?? []));
   });
 
   // ── Image handler ────────────────────────────────────────────────────────
@@ -136,7 +137,16 @@ export const initApp = () => {
   const handleVideoFile = (file: File) => {
     webcamModeActive = false;
     stopVideoStream();
-    showVideoPreview(refs, file);
+
+    // Show img (not video element) since backend sends base64 frames
+    refs.previewVideo.classList.add("hidden");
+    refs.previewVideo.src = "";
+    refs.webcamCanvas.classList.add("hidden");
+    refs.previewImg.classList.remove("hidden");
+    refs.previewImg.src = "";
+    refs.overlayLayer.innerHTML = "";
+    refs.previewContainer.querySelector("#preview-placeholder")?.classList.add("hidden");
+
     setStatus(refs, "Subiendo video y analizando...", true);
     refs.resultsBox.innerHTML = "";
     frameTimeline = [];
@@ -147,29 +157,36 @@ export const initApp = () => {
     videoStreamAbort = streamVideoDetections(
       file,
       (frame) => {
-        // Insert in sorted order (frames arrive in order but just in case)
         frameTimeline.push(frame);
         framesReceived++;
 
         if (!done) {
-          // Show live count
           setStatus(refs, `Analizando... ${framesReceived} fotogramas procesados`, true);
 
-          // Show detections list for latest frame with something detected
-          if (frame.detections.length > 0) {
-            renderDetections(refs, frame.detections);
+          // Show the frame image from base64 (boxes drawn by backend or overlay)
+          if (frame.frame) {
+            const arr = getDetectionArray(frame.detections);
+            if (arr.length > 0) {
+              refs.previewImg.onload = () => {
+                drawOverlayBoxes(refs, arr);
+              };
+            }
+            refs.previewImg.src = `data:image/jpeg;base64,${frame.frame}`;
+          }
+
+          const arr = getDetectionArray(frame.detections);
+          const count = getDetectionCount(frame.detections);
+          if (arr.length > 0) {
+            renderDetections(refs, arr);
+          } else if (count > 0) {
+            refs.resultsBox.innerHTML = `<p style="font-size:.82rem;color:#34d399;padding:6px 0">🔍 ${count} objeto(s) detectado(s)</p>`;
           }
         }
       },
       () => {
         done = true;
-        // Sort by timestamp to ensure correct binary search
         frameTimeline.sort((a, b) => a.t - b.t);
         setStatus(refs, `Video analizado — ${framesReceived} fotogramas`, false);
-        // Update overlay to video's current time
-        const frame = findFrame(refs.previewVideo.currentTime);
-        drawOverlayBoxesOnVideo(refs, frame?.detections ?? []);
-        startRaf();
       },
       (err) => {
         console.error(err);
@@ -177,9 +194,6 @@ export const initApp = () => {
         setStatus(refs, "Fallo al analizar video", false);
       }
     );
-
-    // Start rAF immediately so boxes appear as frames stream in
-    startRaf();
   };
 
   // ── Unified file handler ─────────────────────────────────────────────────
@@ -199,12 +213,15 @@ export const initApp = () => {
     if (!url.trim()) return;
     webcamModeActive = false;
     stopVideoStream();
-    refs.previewImg.classList.add("hidden");
+
+    // Show img for base64 frames from backend
     refs.previewVideo.classList.add("hidden");
     refs.previewVideo.src = "";
     refs.webcamCanvas.classList.add("hidden");
+    refs.previewImg.classList.remove("hidden");
+    refs.previewImg.src = "";
     refs.overlayLayer.innerHTML = "";
-    refs.previewContainer.querySelector("span")?.classList.remove("hidden");
+    refs.previewContainer.querySelector("#preview-placeholder")?.classList.add("hidden");
     refs.resultsBox.innerHTML = "";
     setStatus(refs, "Descargando y analizando video de YouTube...", true);
 
@@ -215,13 +232,25 @@ export const initApp = () => {
       (frame) => {
         frameTimeline.push(frame);
         framesReceived++;
-        setStatus(refs, `Analizando... ${framesReceived} fotogramas procesados`, true);
-        if (frame.detections.length > 0) renderDetections(refs, frame.detections);
+        const count = getDetectionCount(frame.detections);
+        setStatus(refs, `Analizando... ${framesReceived} fotogramas · ${count} detecciones`, true);
+
+        // Show the frame image from base64 (already has boxes drawn by backend)
+        if (frame.frame) {
+          refs.previewImg.src = `data:image/jpeg;base64,${frame.frame}`;
+        }
+
+        // If backend sends detection array, render detail cards
+        const arr = getDetectionArray(frame.detections);
+        if (arr.length > 0) {
+          renderDetections(refs, arr);
+        } else if (count > 0) {
+          refs.resultsBox.innerHTML = `<p style="font-size:.82rem;color:#34d399;padding:6px 0">🔍 ${count} objeto(s) detectado(s)</p>`;
+        }
       },
       () => {
         frameTimeline.sort((a, b) => a.t - b.t);
         setStatus(refs, `Video analizado — ${framesReceived} fotogramas`, false);
-        refs.overlayLayer.innerHTML = "";
       },
       (err) => {
         console.error(err);
@@ -232,7 +261,7 @@ export const initApp = () => {
   };
 
   // ── Webcam handler ───────────────────────────────────────────────────────
-  const handleWebcam = () => {
+  const handleWebcam = (cameraSource?: string) => {
     // Toggle off if already running
     if (webcamModeActive) {
       stopVideoStream();
@@ -245,12 +274,12 @@ export const initApp = () => {
     stopVideoStream();
     webcamModeActive = true; // restore after stopVideoStream reset
 
-    // Hide other media, show canvas
-    refs.previewImg.classList.add("hidden");
-    refs.previewImg.src = "";
+    // Hide other media, show <img> for webcam frames
     refs.previewVideo.classList.add("hidden");
     refs.previewVideo.src = "";
-    refs.webcamCanvas.classList.remove("hidden");
+    refs.webcamCanvas.classList.add("hidden");
+    refs.previewImg.classList.remove("hidden");
+    refs.previewImg.src = "";
     refs.overlayLayer.innerHTML = "";
     refs.previewContainer.querySelector("#preview-placeholder")?.classList.add("hidden");
     refs.resultsBox.innerHTML = "";
@@ -260,7 +289,8 @@ export const initApp = () => {
     refs.webcamBtn.innerHTML = `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/></svg> Detener camara`;
 
     showLiveBadge(true);
-    setStatus(refs, "Conectando camara...", true);
+    const sourceLabel = cameraSource ? cameraSource : "predeterminada";
+    setStatus(refs, `Conectando camara (${sourceLabel})...`, true);
 
     let framesReceived = 0;
 
@@ -268,12 +298,20 @@ export const initApp = () => {
       (frame: WebcamFramePayload) => {
         if (!webcamModeActive) return;
         framesReceived++;
-        setStatus(refs, `Camara activa · ${framesReceived} frames`, true);
+        const count = getDetectionCount(frame.detections);
+        setStatus(refs, `Camara activa · ${framesReceived} frames · ${count} detecciones`, true);
+
+        // Show frame (already has boxes drawn by backend)
         if (frame.frame) {
-          drawWebcamFrame(frame.frame, frame.detections);
+          refs.previewImg.src = `data:image/jpeg;base64,${frame.frame}`;
         }
-        if (frame.detections.length > 0) {
-          renderDetections(refs, frame.detections);
+
+        // If backend sends detection array, render detail cards
+        const arr = getDetectionArray(frame.detections);
+        if (arr.length > 0) {
+          renderDetections(refs, arr);
+        } else if (count > 0) {
+          refs.resultsBox.innerHTML = `<p style="font-size:.82rem;color:#34d399;padding:6px 0">🔍 ${count} objeto(s) detectado(s)</p>`;
         } else if (framesReceived % 30 === 0) {
           refs.resultsBox.innerHTML = '<p style="font-size:.78rem;color:#475569;padding:6px 0">Sin detecciones.</p>';
         }
@@ -294,7 +332,7 @@ export const initApp = () => {
         refs.webcamBtn.innerHTML = `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M20.188 10.934c.2.55.312 1.143.312 1.734 0 3.314-2.686 6-6 6H9.5a6 6 0 1 1 0-12h5a6 6 0 0 1 6 6z"/></svg> Usar camara`;
         webcamModeActive = false;
       },
-      { deviceIndex: 0, maxFps: 10 }
+      cameraSource ? { cameraSource } : undefined
     );
   };
 
@@ -309,13 +347,37 @@ export const initApp = () => {
     if (ytPanel) ytPanel.style.maxHeight = expanded ? "0" : ytPanel.scrollHeight + "px";
   });
 
+  // ── Camera URL accordion toggle ──────────────────────────────────────────
+  const camToggle = document.querySelector<HTMLButtonElement>("#cam-toggle");
+  const camPanel  = document.querySelector<HTMLDivElement>("#cam-panel");
+
+  camToggle?.addEventListener("click", () => {
+    const expanded = camToggle.getAttribute("aria-expanded") === "true";
+    camToggle.setAttribute("aria-expanded", String(!expanded));
+    if (camPanel) camPanel.style.maxHeight = expanded ? "0" : camPanel.scrollHeight + "px";
+  });
+
+  const camBtn = document.querySelector<HTMLButtonElement>("#cam-btn");
+  const camInput = document.querySelector<HTMLInputElement>("#cam-input");
+  camBtn?.addEventListener("click", () => {
+    const url = camInput?.value?.trim() ?? "";
+    if (!url) { setStatus(refs, "Ingresa una URL de cámara", false); return; }
+    handleWebcam(url);
+  });
+  camInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      const url = camInput.value.trim();
+      if (url) handleWebcam(url);
+    }
+  });
+
   // ── Event wiring ─────────────────────────────────────────────────────────
   refs.browseBtn.addEventListener("click", () => refs.fileInput.click());
   refs.fileInput.addEventListener("change", (e) => {
     const file = (e.target as HTMLInputElement).files?.[0];
     handleFile(file);
   });
-  refs.webcamBtn.addEventListener("click", handleWebcam);
+  refs.webcamBtn.addEventListener("click", () => handleWebcam());
 
   const ytBtn = document.querySelector<HTMLButtonElement>("#yt-btn");
   const ytInput = document.querySelector<HTMLInputElement>("#yt-input");

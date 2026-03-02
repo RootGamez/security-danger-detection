@@ -161,7 +161,7 @@ export const streamWebcamDetections = (
   onFrame: (frame: WebcamFramePayload) => void,
   onDone: () => void,
   onError: (err: Error) => void,
-  options?: { deviceIndex?: number; maxFps?: number }
+  options?: { deviceIndex?: number; maxFps?: number; cameraSource?: string }
 ): AbortController => {
   const controller = new AbortController();
   const deviceIndex = options?.deviceIndex ?? 0;
@@ -175,6 +175,9 @@ export const streamWebcamDetections = (
         max_fps: String(maxFps),
         include_frame: "true",
       });
+      if (options?.cameraSource) {
+        params.set("camera_source", options.cameraSource);
+      }
       const url = `${WEBCAM_API_URL}?${params.toString()}`;
       response = await fetch(url, {
         method: "GET",
