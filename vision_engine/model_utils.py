@@ -5,11 +5,32 @@ from ultralytics import YOLO
 
 DATASET_YAML = "datasets/data.yaml"
 OUTPUT_DIR = "evidencias"
-DEFAULT_WEIGHTS = "../runs/detect/train4/weights/best.pt"
-DEFAULT_DEVICE = "cpu"  # Forzar CPU por incompatibilidad de la GPU MX350 con el build de PyTorch
+# Auto-detect latest weights from runs/detect/
+RUNS_DIR = "../runs/detect"
+DEFAULT_WEIGHTS = "yolov8n.pt"
 DANGERS = ["fire", "smoke", "person"]  # case-insensitive comparison
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+
+def find_latest_weights(base_dir: str = RUNS_DIR) -> str | None:
+    """Find the latest best.pt or last.pt in runs/detect/train* directories."""
+    if not os.path.exists(base_dir):
+        return None
+    
+    weights_files = []
+    for root, dirs, files in os.walk(base_dir):
+        for fname in files:
+            if fname.endswith(".pt"):
+                full_path = os.path.join(root, fname)
+                weights_files.append(full_path)
+    
+    if not weights_files:
+        return None
+    
+    # Sort by modification time, return most recent
+    weights_files.sort(key=os.path.getmtime)
+    return weights_files[-1]
 
 
 def train_model(
@@ -17,10 +38,11 @@ def train_model(
     base_weights: str = DEFAULT_WEIGHTS,
     epochs: int = 50,
     imgsz: int = 640,
-    device: str = DEFAULT_DEVICE,
     patience: int = 10,
 ) -> YOLO:
-    print("[INFO] Starting fine-tune...")
+    import torch
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"[INFO] Starting fine-tune on {device}...")
     model = YOLO(base_weights)
     model.train(data=data_yaml, epochs=epochs, imgsz=imgsz, device=device, patience=patience)
     print("[INFO] Training complete.")
@@ -30,21 +52,42 @@ def train_model(
 def load_model(
     weights_path: str | None = None,
     train_mode: bool = False,
+    force_cpu: bool = False,
     **train_kwargs,
 ) -> YOLO:
+    import torch
+    
     if train_mode:
         return train_model(**train_kwargs)
 
-    weights = weights_path or DEFAULT_WEIGHTS
-    if os.path.exists(weights):
-        print(f"[INFO] Loading trained model from {weights}")
-        model = YOLO(weights)
-        model.to(DEFAULT_DEVICE)
-        return model
-
-    print("[WARN] No trained model found. Using base (will not detect fire/smoke).")
-    model = YOLO("yolov8n.pt")
-    model.to(DEFAULT_DEVICE)
+    # Try to use provided path, or find latest, or use default base model
+    weights = weights_path or find_latest_weights() or DEFAULT_WEIGHTS
+    
+    print(f"[INFO] Loading model from {weights}")
+    model = YOLO(weights)
+    
+    # Device selection with compatibility check
+    if force_cpu:
+        device = "cpu"
+        print("[INFO] Forcing CPU mode (force_cpu=True)")
+    elif torch.cuda.is_available():
+        # Check if GPU is compatible (sm_70+)
+        try:
+            capability = torch.cuda.get_device_capability()
+            major, minor = capability
+            if major < 7:  # CUDA capability < 7.0
+                print(f"[WARN] GPU capability sm_{major}{minor} < sm_70, using CPU")
+                device = "cpu"
+            else:
+                device = "cuda"
+        except Exception:
+            device = "cpu"
+    else:
+        device = "cpu"
+    
+    model.to(device)
+    print(f"[INFO] Model loaded on {device}")
+    
     return model
 
 
