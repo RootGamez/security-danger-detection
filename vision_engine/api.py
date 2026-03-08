@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from model_utils import load_model, analyse_image
+from model_utils import load_model, analyse_image, analyse_frame, _extract_detections, detect_security_alerts
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
@@ -57,13 +57,21 @@ class Detection(BaseModel):
     bbox: List[float]
 
 
+class SecurityAlert(BaseModel):
+    type: str
+    confidence: float
+    bbox: List[float]
+    class_name: str = Field(..., alias="class")
+
+
 class PredictionResponse(BaseModel):
     detections: List[Detection]
+    alerts: List[SecurityAlert] = []
 
 
 @app.post("/predict")
-async def predict(file: UploadFile = File(...)) -> PredictionResponse:
-    """Analyze a single image and return detection array."""
+async def predict(file: UploadFile = File(...)):
+    """Analyze a single image and return detection array, safety alerts, and annotated frame."""
     if file.content_type not in {"image/jpeg", "image/png", "image/bmp", "image/webp"}:
         raise HTTPException(status_code=415, detail="Solo se aceptan imágenes")
 
@@ -74,8 +82,16 @@ async def predict(file: UploadFile = File(...)) -> PredictionResponse:
         temp_path = tmp.name
 
     try:
-        detections = analyse_image(model, temp_path)
-        return PredictionResponse(detections=detections)
+        results = model(temp_path, conf=0.3, verbose=False)
+        detections = _extract_detections(model, results)
+        alerts = detect_security_alerts(detections)
+
+        # Draw bounding boxes on the image (same as streaming)
+        annotated = results[0].plot()
+        _, buffer = cv2.imencode(".jpg", annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+        frame_b64 = base64.b64encode(buffer).decode("utf-8")
+
+        return {"detections": detections, "alerts": alerts, "frame": frame_b64}
     finally:
         try:
             os.remove(temp_path)
@@ -155,11 +171,19 @@ async def _stream_stable_detections(path: str | int, is_stream: bool = False) ->
             results = model(frame, conf=0.3, verbose=False)
             annotated_frame = results[0].plot()
 
+            # Build detections + alerts
+            dets = _extract_detections(model, results)
+            no_helmet_alerts = detect_security_alerts(dets)
+
             # Compress to base64
             _, buffer = cv2.imencode('.jpg', annotated_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 20])
             frame_base64 = base64.b64encode(buffer).decode('utf-8')
 
-            payload = {"detections": len(results[0].boxes), "frame": frame_base64}
+            payload = {
+                "detections": dets,
+                "alerts": no_helmet_alerts,
+                "frame": frame_base64,
+            }
             yield f"data: {json.dumps(payload)}\n\n"
             
             await asyncio.sleep(0.08)  # ~12fps output

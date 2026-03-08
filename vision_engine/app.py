@@ -22,10 +22,12 @@ def main() -> None:
             fpath = os.path.join(root, fname)
             print(f"[INFO] Analysing: {fname}...")
 
-            detections = analyse_image(model_local, fpath)
+            detections, alerts = analyse_image(model_local, fpath)
 
-            if detections:
+            if detections or alerts:
                 classes = [d["class"] for d in detections]
+                if alerts:
+                    classes += [f"⚠ {a['type']}" for a in alerts]
                 print(f"[ALERT] Danger detected in {fname}: {classes}")
                 results = model_local(fpath)
                 for r in results:
