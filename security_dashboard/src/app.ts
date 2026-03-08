@@ -15,9 +15,9 @@
 import { createAppState } from "./state/app.state";
 import { mountApp } from "./ui/refs";
 import { setStatus } from "./ui/components/status";
-import { drawOverlayBoxes } from "./ui/components/overlay";
 import { showLiveBadge } from "./ui/components/live-badge";
 import { webcamBtnLabelStart } from "./ui/utils/icons";
+import { initHistoryPanel, openHistoryPanel } from "./ui/components/history-panel";
 
 import { createImageHandler } from "./features/image.feature";
 import { createVideoHandler } from "./features/video.feature";
@@ -57,9 +57,18 @@ export const initApp = (): void => {
   const refs = mountApp(container);
   const state = createAppState();
 
+  // Initialise the history drawer (injects DOM once)
+  initHistoryPanel();
+
   // ── Shared stream cleanup ──────────────────────────────────────────────
 
   const stopStream = (): void => {
+    // Finalise any in-progress stream accumulator before aborting
+    if (state.pendingAccumulator) {
+      state.pendingAccumulator.finalize();
+      state.pendingAccumulator = null;
+    }
+
     state.videoStreamAbort?.abort();
     state.videoStreamAbort = null;
 
@@ -121,14 +130,13 @@ export const initApp = (): void => {
     handleFile(e.dataTransfer?.files?.[0]);
   });
 
-  // Redraw overlay boxes when image finishes loading (e.g. after resize)
-  refs.previewImg.addEventListener("load", () => {
-    if (state.lastDetections.length) drawOverlayBoxes(refs, state.lastDetections);
-  });
-
   // ── Webcam button ──────────────────────────────────────────────────────
 
   refs.webcamBtn.addEventListener("click", () => handleWebcam());
+
+  // ── History button ────────────────────────────────────────────────────
+
+  refs.historyBtn.addEventListener("click", () => openHistoryPanel());
 
   // ── YouTube accordion ──────────────────────────────────────────────────
 

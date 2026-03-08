@@ -4,9 +4,12 @@
  */
 
 const CLASS_COLORS: Record<string, string> = {
-  fire: "#f87171",
-  smoke: "#94a3b8",
-  person: "#34d399",
+  person:       "#34d399",   // emerald-400
+  knife:        "#f87171",   // red-400
+  backpack:     "#fbbf24",   // amber-400
+  suitcase:     "#fb923c",   // orange-400
+  "cell phone": "#60a5fa",   // blue-400
+  dog:          "#a3e635",   // lime-400
 };
 
 /** Returns a hex color for the given detection class label. */

@@ -15,6 +15,7 @@ export type UIRefs = {
   dropArea: HTMLDivElement;
   browseBtn: HTMLButtonElement;
   webcamBtn: HTMLButtonElement;
+  historyBtn: HTMLButtonElement;
   // Preview
   previewImg: HTMLImageElement;
   previewVideo: HTMLVideoElement;
@@ -54,6 +55,7 @@ export const mountApp = (container: HTMLElement): UIRefs => {
     dropArea:         q<HTMLDivElement>("#drop-area"),
     browseBtn:        q<HTMLButtonElement>("#browse-btn"),
     webcamBtn:        q<HTMLButtonElement>("#webcam-btn"),
+    historyBtn:       q<HTMLButtonElement>("#history-btn"),
     previewImg:       q<HTMLImageElement>("#preview"),
     previewVideo:     q<HTMLVideoElement>("#preview-video"),
     webcamCanvas:     q<HTMLCanvasElement>("#webcam-canvas"),

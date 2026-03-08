@@ -8,3 +8,4 @@ export { setStatus } from "./components/status";
 export { showPreview, showVideoPreview, resetPreview } from "./components/preview";
 export { drawOverlayBoxes, drawOverlayBoxesOnVideo, drawOverlayBoxesOnCanvas } from "./components/overlay";
 export { renderDetections } from "./components/results";
+export { showAlertToast, showAlertToasts } from "./components/alert-toast";

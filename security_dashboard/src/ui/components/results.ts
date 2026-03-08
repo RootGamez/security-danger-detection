@@ -1,12 +1,10 @@
 import type { DetectionPayload } from "../../types/domain";
 import type { UIRefs } from "../refs";
-import { drawOverlayBoxes } from "./overlay";
 import { colorForClass } from "../utils/colors";
 
 export const renderDetections = (refs: UIRefs, detections: DetectionPayload[]) => {
   if (detections.length === 0) {
     refs.resultsBox.innerHTML = '<p style="font-size:.78rem;color:#475569;padding:6px 0">Sin detecciones.</p>';
-    refs.overlayLayer.innerHTML = "";
     return;
   }
 
@@ -23,6 +21,4 @@ export const renderDetections = (refs: UIRefs, detections: DetectionPayload[]) =
         </div>`;
     })
     .join("");
-
-  drawOverlayBoxes(refs, detections);
 };

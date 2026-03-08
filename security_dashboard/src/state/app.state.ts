@@ -1,4 +1,5 @@
 import type { DetectionPayload, VideoFramePayload } from "../types/domain";
+import type { DetectionAccumulator } from "../services/history.service";
 
 // ── App state interface ────────────────────────────────────────────────────
 
@@ -15,6 +16,8 @@ export interface AppState {
   lastDetections: DetectionPayload[];
   /** Cached 2D canvas context for webcam rendering. */
   canvasCtx: CanvasRenderingContext2D | null;
+  /** Active stream accumulator — finalised by stopStream() if user interrupts. */
+  pendingAccumulator: DetectionAccumulator | null;
 }
 
 // ── Factory ────────────────────────────────────────────────────────────────
@@ -26,4 +29,5 @@ export const createAppState = (): AppState => ({
   rafId: null,
   lastDetections: [],
   canvasCtx: null,
+  pendingAccumulator: null,
 });

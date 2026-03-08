@@ -91,7 +91,17 @@ export const sidebarTemplate = `
 
     <!-- Detection results -->
     <div class="results-panel">
-      <p class="results-title">Detecciones</p>
+      <div class="results-panel-header">
+        <p class="results-title">Detecciones</p>
+        <button id="history-btn" class="btn-history-open" title="Ver historial de sesiones">
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path d="M12 8v4l3 3"/>
+            <path d="M3.05 11a9 9 0 1 1 .5 4"/>
+            <path d="M3 16H1v-4"/>
+          </svg>
+          Historial
+        </button>
+      </div>
       <div id="results" class="results-list"></div>
     </div>
   </aside>

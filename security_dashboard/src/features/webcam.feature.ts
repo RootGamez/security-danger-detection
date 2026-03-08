@@ -4,6 +4,7 @@
  */
 
 import { streamWebcamDetections } from "../services/detection.api";
+import { DetectionAccumulator } from "../services/history.service";
 import type { AppState } from "../state/app.state";
 import { getDetectionArray, getDetectionCount } from "../types/domain";
 import type { UIRefs } from "../ui/refs";
@@ -12,6 +13,7 @@ import { renderDetections } from "../ui/components/results";
 import { setStatus } from "../ui/components/status";
 import { showLiveBadge } from "../ui/components/live-badge";
 import { webcamBtnLabelStart, webcamBtnLabelStop } from "../ui/utils/icons";
+import { showAlertToasts } from "../ui/components/alert-toast";
 
 export type WebcamHandler = (cameraSource?: string) => void;
 
@@ -52,6 +54,9 @@ export const createWebcamHandler = (
 
     let framesReceived = 0;
 
+    const acc = new DetectionAccumulator("webcam", `Cámara (${sourceLabel})`);
+    state.pendingAccumulator = acc;
+
     state.videoStreamAbort = streamWebcamDetections(
       (frame) => {
         if (!state.webcamModeActive) return;
@@ -65,6 +70,8 @@ export const createWebcamHandler = (
         }
 
         const arr = getDetectionArray(frame.detections);
+        acc.addFrame(arr, frame.alerts);
+
         if (arr.length > 0) {
           renderDetections(refs, arr);
         } else if (count > 0) {
@@ -72,14 +79,21 @@ export const createWebcamHandler = (
         } else if (framesReceived % 30 === 0) {
           refs.resultsBox.innerHTML = '<p class="result-empty">Sin detecciones.</p>';
         }
+
+        // 🔔 Safety alerts
+        showAlertToasts(frame.alerts);
       },
       () => {
+        acc.finalize();
+        state.pendingAccumulator = null;
         showLiveBadge(refs.previewContainer, false);
         setStatus(refs, `Camara finalizada · ${framesReceived} frames`, false);
         resetWebcamButton(refs.webcamBtn);
         state.webcamModeActive = false;
       },
       (err) => {
+        acc.finalize();
+        state.pendingAccumulator = null;
         showLiveBadge(refs.previewContainer, false);
         console.error(err);
         refs.resultsBox.innerHTML = `<p class="result-error">${err.message}</p>`;

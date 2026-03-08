@@ -5,7 +5,7 @@
  */
 
 import { API_URL, VIDEO_API_URL, WEBCAM_API_URL, YOUTUBE_API_URL } from "../config/env";
-import type { DetectionPayload, VideoFramePayload, WebcamFramePayload } from "../types/domain";
+import type { DetectionPayload, SafetyAlert, VideoFramePayload, WebcamFramePayload } from "../types/domain";
 
 // ── SSE stream reader helper ───────────────────────────────────────────────
 
@@ -51,7 +51,13 @@ async function readSseStream<T>(
 
 // ── Image prediction ───────────────────────────────────────────────────────
 
-export const uploadAndPredict = async (file: File): Promise<DetectionPayload[]> => {
+export type ImagePredictionResult = {
+  detections: DetectionPayload[];
+  alerts: SafetyAlert[];
+  frame?: string; // base64 JPEG with bounding boxes drawn by backend
+};
+
+export const uploadAndPredict = async (file: File): Promise<ImagePredictionResult> => {
   const formData = new FormData();
   formData.append("file", file);
 
@@ -61,8 +67,12 @@ export const uploadAndPredict = async (file: File): Promise<DetectionPayload[]> 
     throw new Error(`Error del servidor (${response.status})`);
   }
 
-  const data: { detections: DetectionPayload[] } = await response.json();
-  return data.detections ?? [];
+  const data: { detections: DetectionPayload[]; alerts?: SafetyAlert[]; frame?: string } = await response.json();
+  return {
+    detections: data.detections ?? [],
+    alerts: data.alerts ?? [],
+    frame: data.frame,
+  };
 };
 
 // ── Video stream ───────────────────────────────────────────────────────────

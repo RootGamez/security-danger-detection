@@ -4,36 +4,16 @@
  */
 
 import { streamVideoDetections } from "../services/detection.api";
+import { DetectionAccumulator } from "../services/history.service";
 import type { AppState } from "../state/app.state";
-import type { VideoFramePayload } from "../types/domain";
 import { getDetectionArray, getDetectionCount } from "../types/domain";
 import type { UIRefs } from "../ui/refs";
 import { resetPreview } from "../ui/components/preview";
-import { drawOverlayBoxes, drawOverlayBoxesOnVideo } from "../ui/components/overlay";
 import { renderDetections } from "../ui/components/results";
 import { setStatus } from "../ui/components/status";
+import { showAlertToasts } from "../ui/components/alert-toast";
 
 export type VideoHandler = (file: File) => void;
-
-// ── Timeline helpers ────────────────────────────────────────────────────────
-
-/**
- * Binary-search the timeline for the last frame whose `t` ≤ `currentTime`.
- */
-const findFrame = (
-  timeline: VideoFramePayload[],
-  currentTime: number
-): VideoFramePayload | null => {
-  if (timeline.length === 0) return null;
-  let lo = 0;
-  let hi = timeline.length - 1;
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >> 1;
-    if ((timeline[mid].t ?? 0) <= currentTime) lo = mid;
-    else hi = mid - 1;
-  }
-  return (timeline[lo].t ?? 0) <= currentTime ? timeline[lo] : null;
-};
 
 // ── Factory ─────────────────────────────────────────────────────────────────
 
@@ -57,27 +37,8 @@ export const createVideoHandler = (
     let framesReceived = 0;
     let finished = false;
 
-    // ── rAF overlay sync loop ────────────────────────────────────────────────
-    const startRaf = () => {
-      const tick = () => {
-        if (!refs.previewVideo.paused && !refs.previewVideo.ended) {
-          const frame = findFrame(state.frameTimeline, refs.previewVideo.currentTime);
-          if (frame) drawOverlayBoxesOnVideo(refs, getDetectionArray(frame.detections));
-          else refs.overlayLayer.innerHTML = "";
-        }
-        state.rafId = requestAnimationFrame(tick);
-      };
-      state.rafId = requestAnimationFrame(tick);
-    };
-
-    refs.previewVideo.addEventListener(
-      "seeked",
-      () => {
-        const frame = findFrame(state.frameTimeline, refs.previewVideo.currentTime);
-        drawOverlayBoxesOnVideo(refs, getDetectionArray(frame?.detections ?? []));
-      },
-      { once: false }
-    );
+    const acc = new DetectionAccumulator("video", file.name);
+    state.pendingAccumulator = acc;
 
     state.videoStreamAbort = streamVideoDetections(
       file,
@@ -89,28 +50,33 @@ export const createVideoHandler = (
           setStatus(refs, `Analizando... ${framesReceived} fotogramas procesados`, true);
 
           if (frame.frame) {
-            const arr = getDetectionArray(frame.detections);
-            if (arr.length > 0) {
-              refs.previewImg.onload = () => drawOverlayBoxes(refs, arr);
-            }
             refs.previewImg.src = `data:image/jpeg;base64,${frame.frame}`;
           }
 
           const arr = getDetectionArray(frame.detections);
+          acc.addFrame(arr, frame.alerts);
+
           const count = getDetectionCount(frame.detections);
           if (arr.length > 0) {
             renderDetections(refs, arr);
           } else if (count > 0) {
             refs.resultsBox.innerHTML = `<p class="result-hint">🔍 ${count} objeto(s) detectado(s)</p>`;
           }
+
+          // 🔔 Safety alerts
+          showAlertToasts(frame.alerts);
         }
       },
       () => {
         finished = true;
+        acc.finalize();
+        state.pendingAccumulator = null;
         state.frameTimeline.sort((a, b) => (a.t ?? 0) - (b.t ?? 0));
         setStatus(refs, `Video analizado — ${framesReceived} fotogramas`, false);
       },
       (err) => {
+        acc.finalize();
+        state.pendingAccumulator = null;
         console.error(err);
         refs.resultsBox.innerHTML = '<p class="result-error">No se pudo procesar el video.</p>';
         setStatus(refs, "Fallo al analizar video", false);
