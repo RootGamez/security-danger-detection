@@ -28,7 +28,7 @@ export const createImageHandler = (
     refs.resultsBox.innerHTML = "";
 
     try {
-      const { detections, alerts, frame } = await uploadAndPredict(file);
+      const { detections, alerts, frame, image } = await uploadAndPredict(file);
       state.lastDetections = detections;
 
       // 📊 History
@@ -38,8 +38,9 @@ export const createImageHandler = (
 
       // Show annotated image from backend (boxes already drawn)
       // Fallback to raw file preview if backend didn't return a frame
-      if (frame) {
-        refs.previewImg.src = `data:image/jpeg;base64,${frame}`;
+      const resultFrame = frame ?? image;
+      if (resultFrame) {
+        refs.previewImg.src = `data:image/jpeg;base64,${resultFrame}`;
         refs.previewImg.classList.remove("hidden");
         refs.previewContainer.querySelector("span")?.classList.add("hidden");
       } else {

@@ -18,6 +18,10 @@ export interface AppState {
   canvasCtx: CanvasRenderingContext2D | null;
   /** Active stream accumulator — finalised by stopStream() if user interrupts. */
   pendingAccumulator: DetectionAccumulator | null;
+  /** True while multicamera dashboard is active. */
+  multiCamActive: boolean;
+  /** Per-camera SSE controllers for multicamera alerts. */
+  multiCamControllers: Map<string, AbortController>;
 }
 
 // ── Factory ────────────────────────────────────────────────────────────────
@@ -30,4 +34,6 @@ export const createAppState = (): AppState => ({
   lastDetections: [],
   canvasCtx: null,
   pendingAccumulator: null,
+  multiCamActive: false,
+  multiCamControllers: new Map(),
 });

@@ -41,6 +41,7 @@ function buildToastElement(alert: SafetyAlert, id: string): HTMLElement {
   const { emoji, colorClass } = getClassMeta(alert.class);
   const pct = Math.round(alert.confidence * 100);
   const classLabel = alert.class.charAt(0).toUpperCase() + alert.class.slice(1);
+  const cameraLabel = alert.cameraId ? `Camara ${alert.cameraId}` : "";
 
   const toast = document.createElement("div");
   toast.id = id;
@@ -59,6 +60,7 @@ function buildToastElement(alert: SafetyAlert, id: string): HTMLElement {
       <div class="toast-meta-row">
         <span class="toast-badge toast-badge-vehicle">${classLabel}</span>
         <span class="toast-badge toast-badge-conf">${pct}% confianza</span>
+        ${cameraLabel ? `<span class="toast-badge toast-badge-camera">${cameraLabel}</span>` : ""}
       </div>
       <div class="toast-progress-bar">
         <div class="toast-progress-fill" style="animation-duration:${TOAST_DURATION_MS}ms"></div>
@@ -83,7 +85,7 @@ const _recentKeys = new Set<string>();
 
 function makeDedupeKey(alert: SafetyAlert): string {
   const roundedBbox = alert.bbox.map((v) => Math.round(v / 50)).join(",");
-  return `${alert.class}|${roundedBbox}`;
+  return `${alert.cameraId ?? "global"}|${alert.class}|${roundedBbox}`;
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────

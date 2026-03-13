@@ -4,13 +4,14 @@
  */
 
 // ── Local backend ──────────────────────────────────────────────────────────
-export const API_URL         = "http://localhost:8000/predict";
-export const VIDEO_API_URL   = "http://localhost:8000/predict/video";
-export const YOUTUBE_API_URL = "http://localhost:8000/predict/youtube";
-export const WEBCAM_API_URL  = "http://localhost:8000/predict/webcam";
+const BASE_URL = "http://localhost:8000";
+// const BASE_URL = "https://wicked-horses-leave.loca.lt";
 
-// ── Remote (Colab / Localtunnel) ───────────────────────────────────────────
-// export const API_URL         = "https://soft-groups-march.loca.lt/predict";
-// export const VIDEO_API_URL   = "https://soft-groups-march.loca.lt/predict/video";
-// export const YOUTUBE_API_URL = "https://soft-groups-march.loca.lt/predict/youtube";
-// export const WEBCAM_API_URL  = "https://soft-groups-march.loca.lt/predict/webcam";
+export const API_URL         = `${BASE_URL}/predict`;
+export const VIDEO_API_URL   = `${BASE_URL}/predict/video`;
+export const YOUTUBE_API_URL = `${BASE_URL}/predict/youtube`;
+export const WEBCAM_API_URL  = `${BASE_URL}/predict/webcam`;
+
+export const CAMERA_ADD_URL    = `${BASE_URL}/camera/add`;
+export const CAMERA_STREAM_URL = (camId: string): string => `${BASE_URL}/camera/${camId}/stream`;
+export const CAMERA_EVENTS_URL = (camId: string): string => `${BASE_URL}/camera/${camId}/events`;

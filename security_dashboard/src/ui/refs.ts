@@ -16,12 +16,26 @@ export type UIRefs = {
   browseBtn: HTMLButtonElement;
   webcamBtn: HTMLButtonElement;
   historyBtn: HTMLButtonElement;
+  multiCamOpenBtn: HTMLButtonElement;
+  multiCamStopBtn: HTMLButtonElement;
+  multiCamList: HTMLDivElement;
+  multiCamModal: HTMLDivElement;
+  multiCamCloseBtn: HTMLButtonElement;
+  multiCamYoutubeInput: HTMLInputElement;
+  multiCamYoutubeAddBtn: HTMLButtonElement;
+  multiCamUrlInput: HTMLInputElement;
+  multiCamUrlAddBtn: HTMLButtonElement;
+  multiCamFileInput: HTMLInputElement;
+  multiCamFileBrowseBtn: HTMLButtonElement;
+  multiCamFileAddBtn: HTMLButtonElement;
+  multiCamFileName: HTMLSpanElement;
   // Preview
   previewImg: HTMLImageElement;
   previewVideo: HTMLVideoElement;
   webcamCanvas: HTMLCanvasElement;
   previewContainer: HTMLDivElement;
   overlayLayer: HTMLDivElement;
+  multiCamGrid: HTMLDivElement;
   // Sidebar output
   resultsBox: HTMLDivElement;
   statusText: HTMLSpanElement;
@@ -56,11 +70,25 @@ export const mountApp = (container: HTMLElement): UIRefs => {
     browseBtn:        q<HTMLButtonElement>("#browse-btn"),
     webcamBtn:        q<HTMLButtonElement>("#webcam-btn"),
     historyBtn:       q<HTMLButtonElement>("#history-btn"),
+    multiCamOpenBtn:  q<HTMLButtonElement>("#multi-cam-open"),
+    multiCamStopBtn:  q<HTMLButtonElement>("#multi-cam-stop"),
+    multiCamList:     q<HTMLDivElement>("#multi-cam-list"),
+    multiCamModal:    q<HTMLDivElement>("#multi-cam-modal"),
+    multiCamCloseBtn: q<HTMLButtonElement>("#multi-cam-close"),
+    multiCamYoutubeInput: q<HTMLInputElement>("#multi-yt-input"),
+    multiCamYoutubeAddBtn: q<HTMLButtonElement>("#multi-yt-add"),
+    multiCamUrlInput: q<HTMLInputElement>("#multi-url-input"),
+    multiCamUrlAddBtn: q<HTMLButtonElement>("#multi-url-add"),
+    multiCamFileInput: q<HTMLInputElement>("#multi-file-input"),
+    multiCamFileBrowseBtn: q<HTMLButtonElement>("#multi-file-browse"),
+    multiCamFileAddBtn: q<HTMLButtonElement>("#multi-file-add"),
+    multiCamFileName: q<HTMLSpanElement>("#multi-file-name"),
     previewImg:       q<HTMLImageElement>("#preview"),
     previewVideo:     q<HTMLVideoElement>("#preview-video"),
     webcamCanvas:     q<HTMLCanvasElement>("#webcam-canvas"),
     previewContainer: q<HTMLDivElement>("#preview-container"),
     overlayLayer:     q<HTMLDivElement>("#box-overlay"),
+    multiCamGrid:     q<HTMLDivElement>("#multi-cam-grid"),
     resultsBox:       q<HTMLDivElement>("#results"),
     statusText:       q<HTMLSpanElement>("#status"),
     loader:           q<HTMLDivElement>("#loader"),
