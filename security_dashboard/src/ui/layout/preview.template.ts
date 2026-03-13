@@ -15,5 +15,7 @@ export const previewTemplate = `
       <video id="preview-video" class="preview-media hidden" controls></video>
       <canvas id="webcam-canvas" class="preview-media hidden"></canvas>
     </div>
+
+    <div id="multi-cam-grid" class="multi-cam-grid hidden"></div>
   </main>
 `;

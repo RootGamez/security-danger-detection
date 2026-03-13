@@ -4,16 +4,26 @@ import json
 import os
 import re
 import tempfile
+import threading
+import time
 from typing import AsyncGenerator, Dict, List
 
 import cv2
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from model_utils import load_model, analyse_image, analyse_frame, _extract_detections, detect_security_alerts
+from model_utils import (
+    DANGERS,
+    load_model,
+    analyse_frame,
+    analyse_frame_stream,
+    analyse_image,
+    _extract_detections,
+    detect_security_alerts,
+)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
@@ -41,14 +51,166 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-model = load_model(force_cpu=True)  # Force CPU for MX350 compatibility
+FORCE_CPU = os.getenv("FORCE_CPU", "false").lower() == "true"
+global_model = load_model(force_cpu=FORCE_CPU)
+print("🔥 Inicializando IA para 4 cámaras simultáneas...")
+TARGET_IDS = [class_id for class_id, name in global_model.names.items() if name.lower() in DANGERS]
+
+# Perfil agresivo para reducir carga de CPU en multistream.
+STREAM_TARGET_WIDTH = 360
+STREAM_FRAME_SKIP = 4
+STREAM_JPEG_QUALITY = 45
+
+CAMERA_TARGET_WIDTH = 360
+CAMERA_FRAME_SKIP = 4
+CAMERA_JPEG_QUALITY = 45
+
+
+@app.middleware("http")
+async def add_localtunnel_bypass_header(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Bypass-Tunnel-Reminder"] = "true"
+    return response
 
 
 @app.get("/health")
 async def health() -> Dict[str, str]:
-    import torch
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = getattr(global_model, "_audit_device", "cpu")
     return {"status": "ok", "device": device}
+
+
+# ====================================================================
+# PARTE 1: SISTEMA MULTICAMARA EN VIVO (DASHBOARD)
+# ====================================================================
+
+class CameraStream:
+    def __init__(self, cam_id: str, source: str | int):
+        self.cam_id = cam_id
+        self.source = source
+        self.cap = _open_video_capture(source)
+        self.latest_frame: bytes | None = None
+        self.latest_detections: List[Dict] = []
+        self.latest_alerts: List[Dict] = []
+        self.last_event_ts = 0.0
+        self.running = True
+        self.frame_count = 0
+
+        self.thread = threading.Thread(target=self.process_stream, daemon=True)
+        self.thread.start()
+
+    def process_stream(self) -> None:
+        while self.running:
+            success, frame = self.cap.read()
+            if not success:
+                self.cap.release()
+                self.cap = _open_video_capture(self.source)
+                time.sleep(1)
+                continue
+
+            self.frame_count += 1
+            if self.frame_count % CAMERA_FRAME_SKIP != 0:
+                continue
+
+            h, w = frame.shape[:2]
+            if w > CAMERA_TARGET_WIDTH:
+                new_h = int(h * (CAMERA_TARGET_WIDTH / w))
+                frame = cv2.resize(frame, (CAMERA_TARGET_WIDTH, new_h))
+
+            detections, alerts, annotated = analyse_frame_stream(global_model, frame)
+            self.latest_detections = detections
+            self.latest_alerts = alerts
+            self.last_event_ts = time.time()
+
+            ret, buffer = cv2.imencode(
+                ".jpg",
+                annotated,
+                [int(cv2.IMWRITE_JPEG_QUALITY), CAMERA_JPEG_QUALITY],
+            )
+            if ret:
+                self.latest_frame = buffer.tobytes()
+
+    def stop(self) -> None:
+        self.running = False
+        self.cap.release()
+
+
+active_cameras: Dict[str, CameraStream] = {}
+
+
+class CameraRequest(BaseModel):
+    cam_id: str
+    source: str
+
+
+@app.post("/camera/add")
+async def add_camera(req: CameraRequest):
+    source = int(req.source) if req.source.isdigit() else req.source
+    if req.cam_id in active_cameras:
+        active_cameras[req.cam_id].stop()
+    active_cameras[req.cam_id] = CameraStream(cam_id=req.cam_id, source=source)
+    return {"message": f"Camara '{req.cam_id}' activa."}
+
+
+def generate_mjpeg(cam_id: str):
+    cam = active_cameras.get(cam_id)
+    while cam and cam.running:
+        if cam.latest_frame is not None:
+            yield (
+                b"--frame\r\n"
+                b"Content-Type: image/jpeg\r\n\r\n" + cam.latest_frame + b"\r\n"
+            )
+        time.sleep(0.05)
+
+
+@app.get("/camera/{cam_id}/stream")
+async def video_feed(cam_id: str):
+    if cam_id not in active_cameras:
+        raise HTTPException(status_code=404, detail="Camara no encontrada")
+    return StreamingResponse(generate_mjpeg(cam_id), media_type="multipart/x-mixed-replace; boundary=frame")
+
+
+@app.get("/camera/{cam_id}/events")
+async def camera_events(cam_id: str) -> StreamingResponse:
+    cam = active_cameras.get(cam_id)
+    if not cam:
+        raise HTTPException(status_code=404, detail="Camara no encontrada")
+
+    async def _event_stream() -> AsyncGenerator[str, None]:
+        last_ts = 0.0
+        while cam and cam.running:
+            if cam.last_event_ts > last_ts:
+                last_ts = cam.last_event_ts
+                payload = {
+                    "cam_id": cam_id,
+                    "detections": cam.latest_detections,
+                    "alerts": cam.latest_alerts,
+                    "ts": cam.last_event_ts,
+                }
+                yield f"data: {json.dumps(payload)}\n\n"
+            await asyncio.sleep(0.2)
+
+    return StreamingResponse(_event_stream(), media_type="text/event-stream")
+
+
+@app.get("/", response_class=HTMLResponse)
+async def dashboard() -> str:
+    cam_html = "".join(
+        [
+            f"<div style='margin:10px;border:2px solid #444'>"
+            f"<h3 style='color:#0f0'>Camara {c}</h3>"
+            f"<img src='/camera/{c}/stream' width='480'>"
+            f"</div>"
+            for c in active_cameras
+        ]
+    )
+    if not cam_html:
+        cam_html = "<h3 style='color:red'>Sin camaras. Agrega una por POST /camera/add</h3>"
+    return (
+        "<html><body style='background:#111;color:white;text-align:center;'>"
+        "<h1>AuditSentinel Dashboard</h1>"
+        f"<div style='display:flex;justify-content:center;flex-wrap:wrap;'>{cam_html}</div>"
+        "</body></html>"
+    )
 
 
 class Detection(BaseModel):
@@ -82,16 +244,29 @@ async def predict(file: UploadFile = File(...)):
         temp_path = tmp.name
 
     try:
-        results = model(temp_path, conf=0.3, verbose=False)
-        detections = _extract_detections(model, results)
+        results = await asyncio.to_thread(
+            global_model,
+            temp_path,
+            conf=0.25,
+            classes=TARGET_IDS,
+            verbose=False,
+        )
+        detections = _extract_detections(global_model, results)
         alerts = detect_security_alerts(detections)
 
-        # Draw bounding boxes on the image (same as streaming)
-        annotated = results[0].plot()
+        if len(results[0].boxes) > 0:
+            annotated = results[0].plot(conf=True, line_width=4, font_size=1.5, labels=True)
+        else:
+            annotated = cv2.imread(temp_path)
         _, buffer = cv2.imencode(".jpg", annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
         frame_b64 = base64.b64encode(buffer).decode("utf-8")
 
-        return {"detections": detections, "alerts": alerts, "frame": frame_b64}
+        return {
+            "detections": detections,
+            "alerts": alerts,
+            "frame": frame_b64,
+            "image": frame_b64,
+        }
     finally:
         try:
             os.remove(temp_path)
@@ -133,8 +308,6 @@ async def _stream_stable_detections(path: str | int, is_stream: bool = False) ->
         path: Video file path, webcam index (int), or stream URL (str)
         is_stream: If True, keep retrying on read failures (for live streams)
     """
-    TARGET_WIDTH = 1080
-    FRAME_SKIP = 5
     count = 0
 
     print(f"[DEBUG] Opening video source: {path} (type: {type(path).__name__})")
@@ -148,7 +321,7 @@ async def _stream_stable_detections(path: str | int, is_stream: bool = False) ->
     
     try:
         while True:
-            ret, frame = cap.read()
+            ret, frame = await asyncio.to_thread(cap.read)
             if not ret:
                 if is_stream:
                     await asyncio.sleep(0.5)
@@ -158,35 +331,45 @@ async def _stream_stable_detections(path: str | int, is_stream: bool = False) ->
                     break
 
             count += 1
-            if count % FRAME_SKIP != 0:
+            if count % STREAM_FRAME_SKIP != 0:
                 continue
 
-            # Resize to save bandwidth
+            # Resize to save bandwidth and match the Colab stream profile.
             h, w = frame.shape[:2]
-            if w > TARGET_WIDTH:
-                new_h = int(h * (TARGET_WIDTH / w))
-                frame = cv2.resize(frame, (TARGET_WIDTH, new_h))
+            if w > STREAM_TARGET_WIDTH:
+                new_h = int(h * (STREAM_TARGET_WIDTH / w))
+                frame = cv2.resize(frame, (STREAM_TARGET_WIDTH, new_h))
 
             # Detection and drawing (boxes on frame)
-            results = model(frame, conf=0.3, verbose=False)
+            results = await asyncio.to_thread(
+                global_model,
+                frame,
+                conf=0.35,
+                classes=TARGET_IDS,
+                verbose=False,
+            )
             annotated_frame = results[0].plot()
 
             # Build detections + alerts
-            dets = _extract_detections(model, results)
-            no_helmet_alerts = detect_security_alerts(dets)
+            dets = _extract_detections(global_model, results)
+            security_alerts = detect_security_alerts(dets)
 
             # Compress to base64
-            _, buffer = cv2.imencode('.jpg', annotated_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 20])
+            _, buffer = cv2.imencode(
+                '.jpg',
+                annotated_frame,
+                [int(cv2.IMWRITE_JPEG_QUALITY), STREAM_JPEG_QUALITY],
+            )
             frame_base64 = base64.b64encode(buffer).decode('utf-8')
 
             payload = {
                 "detections": dets,
-                "alerts": no_helmet_alerts,
+                "alerts": security_alerts,
                 "frame": frame_base64,
             }
             yield f"data: {json.dumps(payload)}\n\n"
             
-            await asyncio.sleep(0.08)  # ~12fps output
+            await asyncio.sleep(0.01)
             
     finally:
         cap.release()
@@ -212,7 +395,7 @@ async def predict_youtube(payload: dict) -> StreamingResponse:
 
     # Extract stream URL without downloading
     ydl_opts = {
-        'format': 'best[height<=720]/best',
+        'format': 'best[height<=360]/best',
         'quiet': True,
     }
     

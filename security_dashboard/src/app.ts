@@ -22,7 +22,7 @@ import { initHistoryPanel, openHistoryPanel } from "./ui/components/history-pane
 import { createImageHandler } from "./features/image.feature";
 import { createVideoHandler } from "./features/video.feature";
 import { createWebcamHandler } from "./features/webcam.feature";
-import { createYoutubeHandler } from "./features/youtube.feature";
+import { createMultiCamHandler } from "./features/multicam.feature";
 
 // ── File type detection ────────────────────────────────────────────────────
 
@@ -32,20 +32,6 @@ const isVideoFile = (file: File): boolean => {
   if (file.type.startsWith("video/")) return true;
   const ext = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
   return VIDEO_EXTENSIONS.has(ext);
-};
-
-// ── Accordion helper ───────────────────────────────────────────────────────
-
-const wireAccordion = (toggleId: string, panelId: string): void => {
-  const toggle = document.querySelector<HTMLButtonElement>(`#${toggleId}`);
-  const panel = document.querySelector<HTMLDivElement>(`#${panelId}`);
-  if (!toggle || !panel) return;
-
-  toggle.addEventListener("click", () => {
-    const expanded = toggle.getAttribute("aria-expanded") === "true";
-    toggle.setAttribute("aria-expanded", String(!expanded));
-    panel.style.maxHeight = expanded ? "0" : `${panel.scrollHeight}px`;
-  });
 };
 
 // ── Entry point ────────────────────────────────────────────────────────────
@@ -59,6 +45,8 @@ export const initApp = (): void => {
 
   // Initialise the history drawer (injects DOM once)
   initHistoryPanel();
+
+  let stopMultiCam = (): void => {};
 
   // ── Shared stream cleanup ──────────────────────────────────────────────
 
@@ -86,6 +74,10 @@ export const initApp = (): void => {
       refs.webcamBtn.classList.remove("active");
       refs.webcamBtn.innerHTML = webcamBtnLabelStart();
     }
+
+    if (state.multiCamActive) {
+      stopMultiCam();
+    }
   };
 
   // ── Feature handlers ───────────────────────────────────────────────────
@@ -93,7 +85,8 @@ export const initApp = (): void => {
   const handleImage   = createImageHandler(refs, state, stopStream);
   const handleVideo   = createVideoHandler(refs, state, stopStream);
   const handleWebcam  = createWebcamHandler(refs, state, stopStream);
-  const handleYoutube = createYoutubeHandler(refs, state, stopStream);
+  const multiCamHandlers = createMultiCamHandler(refs, state, stopStream);
+  stopMultiCam = multiCamHandlers.stopAll;
 
   // ── Unified file dispatcher ────────────────────────────────────────────
 
@@ -138,37 +131,73 @@ export const initApp = (): void => {
 
   refs.historyBtn.addEventListener("click", () => openHistoryPanel());
 
-  // ── YouTube accordion ──────────────────────────────────────────────────
+  // ── Multicamera modal controls ───────────────────────────────────────
 
-  wireAccordion("yt-toggle", "yt-panel");
+  const openMultiModal = (): void => {
+    refs.multiCamModal.classList.remove("hidden");
+    refs.multiCamModal.setAttribute("aria-hidden", "false");
+  };
 
-  const ytBtn   = document.querySelector<HTMLButtonElement>("#yt-btn");
-  const ytInput = document.querySelector<HTMLInputElement>("#yt-input");
+  const closeMultiModal = (): void => {
+    refs.multiCamModal.classList.add("hidden");
+    refs.multiCamModal.setAttribute("aria-hidden", "true");
+  };
 
-  ytBtn?.addEventListener("click", () => handleYoutube(ytInput?.value ?? ""));
-  ytInput?.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") handleYoutube(ytInput.value);
+  refs.multiCamOpenBtn.addEventListener("click", openMultiModal);
+  refs.multiCamCloseBtn.addEventListener("click", closeMultiModal);
+  refs.multiCamModal.addEventListener("click", (e) => {
+    const target = e.target as HTMLElement;
+    if (target.dataset.close === "true") closeMultiModal();
   });
 
-  // ── Camera URL accordion ───────────────────────────────────────────────
-
-  wireAccordion("cam-toggle", "cam-panel");
-
-  const camBtn   = document.querySelector<HTMLButtonElement>("#cam-btn");
-  const camInput = document.querySelector<HTMLInputElement>("#cam-input");
-
-  camBtn?.addEventListener("click", () => {
-    const url = camInput?.value?.trim() ?? "";
-    if (!url) { setStatus(refs, "Ingresa una URL de cámara", false); return; }
-    handleWebcam(url);
+  refs.multiCamYoutubeAddBtn.addEventListener("click", () => {
+    multiCamHandlers.addFromYoutube(refs.multiCamYoutubeInput.value);
+    refs.multiCamYoutubeInput.value = "";
+    closeMultiModal();
   });
 
-  camInput?.addEventListener("keydown", (e) => {
+  refs.multiCamYoutubeInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
-      const url = camInput.value.trim();
-      if (url) handleWebcam(url);
+      multiCamHandlers.addFromYoutube(refs.multiCamYoutubeInput.value);
+      refs.multiCamYoutubeInput.value = "";
+      closeMultiModal();
     }
   });
+
+  refs.multiCamUrlAddBtn.addEventListener("click", () => {
+    multiCamHandlers.addFromUrl(refs.multiCamUrlInput.value);
+    refs.multiCamUrlInput.value = "";
+    closeMultiModal();
+  });
+
+  refs.multiCamUrlInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      multiCamHandlers.addFromUrl(refs.multiCamUrlInput.value);
+      refs.multiCamUrlInput.value = "";
+      closeMultiModal();
+    }
+  });
+
+  refs.multiCamFileBrowseBtn.addEventListener("click", () => refs.multiCamFileInput.click());
+
+  refs.multiCamFileInput.addEventListener("change", () => {
+    const file = refs.multiCamFileInput.files?.[0];
+    refs.multiCamFileName.textContent = file ? file.name : "Sin archivo";
+  });
+
+  refs.multiCamFileAddBtn.addEventListener("click", () => {
+    const file = refs.multiCamFileInput.files?.[0];
+    if (!file) {
+      setStatus(refs, "Selecciona un archivo", false);
+      return;
+    }
+    multiCamHandlers.addFromFile(file);
+    refs.multiCamFileInput.value = "";
+    refs.multiCamFileName.textContent = "Sin archivo";
+    closeMultiModal();
+  });
+
+  refs.multiCamStopBtn.addEventListener("click", () => stopMultiCam());
 
   // ── Initial status ─────────────────────────────────────────────────────
 

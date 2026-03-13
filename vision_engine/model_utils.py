@@ -5,43 +5,71 @@ from ultralytics import YOLO
 
 DATASET_YAML = "datasets/data.yaml"
 OUTPUT_DIR = "evidencias"
-DEFAULT_WEIGHTS = "yolo11n.pt"   # YOLOv11 Nano — velocidad sin lag
+RUNS_DIR = "../runs/detect"
+
+DEFAULT_WEIGHTS = "yolo11m.pt"
 
 # Clases COCO que queremos auditar
-DANGERS = ["dog", "knife", "backpack"]
+DANGERS = ["person", "knife", "backpack", "suitcase", "cell phone", "dog"]
 
 # Umbral de confianza para disparar una alerta de seguridad
 ALERTA_CONF_THRESHOLD = 0.60
 
 # Mapa objeto → etiqueta legible de la alerta
 OBJETOS_PELIGROSOS: Dict[str, str] = {
-    "knife":    "Arma Blanca Detectada",
+    "knife": "Arma Blanca Detectada",
     "backpack": "Mochila / Objeto Sospechoso",
-    "dog":      "Infracción Sanitaria: Animal Detectado",
+    "suitcase": "Maleta Sospechosa",
+    "cell phone": "Uso de Celular en Zona Restringida",
+    "dog": "Infracción Sanitaria: Animal Detectado",
 }
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
-def load_model(weights_path: str | None = None, force_cpu: bool = False, **kwargs) -> YOLO:
+def _pick_torch_device(force_cpu: bool) -> str:
     import torch
+
+    if force_cpu or not torch.cuda.is_available():
+        return "cpu"
+
+    try:
+        capability = torch.cuda.get_device_capability(0)
+        arch_list = set(torch.cuda.get_arch_list())
+        device_arch = f"sm_{capability[0]}{capability[1]}"
+
+        if arch_list and device_arch not in arch_list:
+            print(
+                f"[WARN] CUDA detectado pero no compatible con la build actual de PyTorch "
+                f"({device_arch} no esta en {sorted(arch_list)}). Usando CPU."
+            )
+            return "cpu"
+
+        return "cuda"
+    except Exception as exc:
+        print(f"[WARN] No se pudo validar la compatibilidad CUDA: {exc}. Usando CPU.")
+        return "cpu"
+
+
+def load_model(weights_path: str | None = None, force_cpu: bool = False, **kwargs) -> YOLO:
     weights = weights_path or DEFAULT_WEIGHTS
     print(f"[INFO] Cargando modelo desde {weights}")
     model = YOLO(weights)
 
-    if force_cpu:
-        device = "cpu"
-    elif torch.cuda.is_available():
-        try:
-            capability = torch.cuda.get_device_capability()
-            device = "cuda" if capability[0] >= 7 else "cpu"
-        except Exception:
-            device = "cpu"
-    else:
-        device = "cpu"
+    device = _pick_torch_device(force_cpu)
 
-    model.to(device)
-    print(f"[INFO] Modelo cargado en {device}")
+    try:
+        model.to(device)
+    except Exception as exc:
+        if device != "cpu":
+            print(f"[WARN] Fallo al mover el modelo a {device}: {exc}. Reintentando en CPU.")
+            device = "cpu"
+            model.to(device)
+        else:
+            raise
+
+    setattr(model, "_audit_device", device)
+    print(f"[INFO] AuditSentinel cargado en {device}")
     return model
 
 
@@ -74,16 +102,16 @@ def _extract_detections(model: YOLO, results) -> List[Dict]:
     for r in results:
         for box in r.boxes:
             cls_id = int(box.cls[0])
-            class_name = model.names[cls_id]
-            if class_name.lower() not in DANGERS:
+            class_name = model.names[cls_id].lower()
+            if class_name not in DANGERS:
                 continue
             conf = float(box.conf[0]) if box.conf is not None else 0.0
             xyxy = box.xyxy[0].tolist()
             bbox = [float(coord) for coord in xyxy]
             detections.append({
-                "class":      class_name,
+                "class": class_name,
                 "confidence": round(conf, 3),
-                "bbox":       [round(coord, 2) for coord in bbox],
+                "bbox": [round(coord, 2) for coord in bbox],
             })
     return detections
 
@@ -94,6 +122,20 @@ def analyse_frame(model: YOLO, frame) -> Tuple[List[Dict], List[Dict]]:
     detections = _extract_detections(model, results)
     alerts = detect_security_alerts(detections)
     return detections, alerts
+
+
+def analyse_frame_stream(model: YOLO, frame):
+    target_classes = [class_id for class_id, name in model.names.items() if name.lower() in DANGERS]
+    results = model(frame, conf=0.35, classes=target_classes, verbose=False)
+    detections = _extract_detections(model, results)
+    alerts = detect_security_alerts(detections)
+
+    if len(results[0].boxes) > 0:
+        annotated_frame = results[0].plot(conf=True)
+    else:
+        annotated_frame = frame
+
+    return detections, alerts, annotated_frame
 
 
 def analyse_image(model: YOLO, image_path: str) -> Tuple[List[Dict], List[Dict]]:

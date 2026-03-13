@@ -15,6 +15,8 @@ export type SafetyAlert = {
   bbox: [number, number, number, number];
   /** Nombre de clase COCO en minúsculas (ej. "knife", "backpack"). */
   class: string;
+  /** ID de la camara cuando proviene del dashboard multicamara. */
+  cameraId?: string;
 };
 
 // ── Stream payload types ───────────────────────────────────────────────────
@@ -28,6 +30,13 @@ export type VideoFramePayload = {
 };
 
 export type WebcamFramePayload = VideoFramePayload;
+
+export type CameraEventPayload = {
+  cam_id: string;
+  detections: DetectionPayload[];
+  alerts?: SafetyAlert[];
+  ts?: number;
+};
 
 // ── History types ──────────────────────────────────────────────────────────
 

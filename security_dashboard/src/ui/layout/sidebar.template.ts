@@ -44,43 +44,14 @@ export const sidebarTemplate = `
       </button>
     </div>
 
-    <!-- YouTube accordion -->
-    <div class="yt-section">
-      <button id="yt-toggle" class="yt-toggle" aria-expanded="false">
-        <svg width="16" height="16" fill="#ff0000" viewBox="0 0 24 24">
-          <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-2.13 4.83 4.83 0 0 1-3.82 2.13 4.83 4.83 0 0 1-3.82-2.13 4.83 4.83 0 0 1-3.77 2.13C3.5 6.69 2 8.44 2 12s1.5 5.31 2.41 5.31a4.83 4.83 0 0 1 3.77-2.13 4.83 4.83 0 0 1 3.82 2.13 4.83 4.83 0 0 1 3.82-2.13 4.83 4.83 0 0 1 3.77 2.13C21.5 17.31 22 15.56 22 12s-.5-5.31-1.41-5.31z"/>
-        </svg>
-        Analizar YouTube
-        <svg id="yt-chevron" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="margin-left:auto;transition:transform .2s">
-          <polyline points="6 9 12 15 18 9"/>
-        </svg>
-      </button>
-      <div id="yt-panel" class="yt-panel" style="max-height:0;overflow:hidden;transition:max-height .25s ease">
-        <div class="yt-input-row">
-          <input id="yt-input" type="text" placeholder="https://youtube.com/watch?v=..." class="yt-input" />
-          <button id="yt-btn" class="btn btn-yt">Analizar</button>
-        </div>
+    <!-- Multicamera control -->
+    <div class="multi-section">
+      <div class="multi-header">
+        <p class="multi-title">Panel multicamara</p>
+        <button id="multi-cam-stop" class="btn btn-multi-stop" title="Detener todas">Detener todo</button>
       </div>
-    </div>
-
-    <!-- Camera URL accordion -->
-    <div class="cam-section">
-      <button id="cam-toggle" class="cam-toggle" aria-expanded="false">
-        <svg width="16" height="16" fill="none" stroke="#06b6d4" stroke-width="2" viewBox="0 0 24 24">
-          <rect x="2" y="5" width="15" height="14" rx="2"/>
-          <path d="M22 7l-5 3.5L22 14z"/>
-        </svg>
-        Cámara por URL
-        <svg id="cam-chevron" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="margin-left:auto;transition:transform .2s">
-          <polyline points="6 9 12 15 18 9"/>
-        </svg>
-      </button>
-      <div id="cam-panel" class="cam-panel" style="max-height:0;overflow:hidden;transition:max-height .25s ease">
-        <div class="cam-input-row">
-          <input id="cam-input" type="text" placeholder="http://192.168.1.50:4747/video" class="cam-input" />
-          <button id="cam-btn" class="btn btn-cam">Conectar</button>
-        </div>
-      </div>
+      <button id="multi-cam-open" class="btn btn-multi">Agregar nueva camara</button>
+      <div id="multi-cam-list" class="multi-cam-list"></div>
     </div>
 
     <!-- Status bar -->
@@ -103,6 +74,52 @@ export const sidebarTemplate = `
         </button>
       </div>
       <div id="results" class="results-list"></div>
+    </div>
+
+    <!-- Multicamera modal -->
+    <div id="multi-cam-modal" class="multi-modal hidden" aria-hidden="true">
+      <div class="multi-modal-backdrop" data-close="true"></div>
+      <div class="multi-modal-card" role="dialog" aria-label="Agregar nueva camara">
+        <div class="multi-modal-header">
+          <div>
+            <p class="multi-modal-title">Agregar nueva camara</p>
+            <p class="multi-modal-sub">YouTube, URL de camara o archivo local</p>
+          </div>
+          <button id="multi-cam-close" class="multi-modal-close" aria-label="Cerrar">✕</button>
+        </div>
+        <div class="multi-modal-body">
+          <div class="multi-option">
+            <p class="multi-option-title">YouTube</p>
+            <div class="multi-option-row">
+              <input id="multi-yt-input" type="text" placeholder="https://youtube.com/watch?v=..." class="multi-input" />
+              <button id="multi-yt-add" class="btn btn-yt">Agregar</button>
+            </div>
+          </div>
+
+          <div class="multi-option">
+            <p class="multi-option-title">Camara por URL</p>
+            <div class="multi-option-row">
+              <input id="multi-url-input" type="text" placeholder="http://192.168.1.50:4747/video" class="multi-input" />
+              <button id="multi-url-add" class="btn btn-cam">Agregar</button>
+            </div>
+          </div>
+
+          <div class="multi-option">
+            <p class="multi-option-title">Archivo local</p>
+            <input
+              id="multi-file-input"
+              type="file"
+              accept="image/*,video/mp4,video/avi,video/quicktime,video/webm,video/x-matroska,video/mpeg,.mkv,.avi,.mov"
+              class="hidden"
+            />
+            <div class="multi-file-row">
+              <button id="multi-file-browse" class="btn btn-primary">Elegir archivo</button>
+              <span id="multi-file-name" class="multi-file-name">Sin archivo</span>
+              <button id="multi-file-add" class="btn btn-multi">Agregar</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </aside>
 `;
