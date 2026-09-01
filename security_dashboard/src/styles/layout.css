@@ -1,0 +1,207 @@
+/* ════════════════════════════════════════════════════════════════════════
+   Estructura: barra superior, rejilla de tres columnas y lateral
+   ════════════════════════════════════════════════════════════════════════ */
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* ── Barra superior ─────────────────────────────────────────────────────── */
+
+.topbar {
+  flex: none;
+  height: var(--topbar-h);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: 0 var(--sp-4);
+  border-bottom: 1px solid var(--border);
+  background: rgb(13 18 28 / 72%);
+  backdrop-filter: blur(14px);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-md);
+  background: linear-gradient(140deg, var(--accent), var(--info));
+  color: var(--accent-ink);
+  box-shadow: 0 0 0 1px rgb(45 212 191 / 25%);
+}
+
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.brand-name {
+  font-size: var(--fs-md);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.brand-tagline {
+  font-size: var(--fs-xs);
+  color: var(--text-subtle);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+/* ── Rejilla principal ──────────────────────────────────────────────────── */
+
+.app-shell {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr) var(--rail-w);
+  grid-template-areas: "sidebar stage rail";
+  gap: var(--sp-4);
+  padding: var(--sp-4);
+  overflow: hidden;
+}
+
+.sidebar {
+  grid-area: sidebar;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: var(--sp-1);
+}
+
+.stage {
+  grid-area: stage;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  min-height: 0;
+  min-width: 0;
+}
+
+.rail {
+  grid-area: rail;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  min-height: 0;
+  padding: var(--sp-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+}
+
+/* ── Barra de estado del lateral ────────────────────────────────────────── */
+
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: auto;
+  padding: var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.status-text {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.status-text[data-loading="true"] {
+  color: var(--text);
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Responsive
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* El carril de detecciones pasa bajo el escenario. */
+@media (width <= 1280px) {
+  .app-shell {
+    grid-template-columns: 300px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "sidebar stage"
+      "sidebar rail";
+  }
+
+  .rail {
+    max-height: 230px;
+  }
+}
+
+/* Una sola columna: el escenario manda y la página pasa a hacer scroll. */
+@media (width <= 900px) {
+  #app {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: var(--z-sticky);
+    height: auto;
+    flex-wrap: wrap;
+    padding: var(--sp-3) var(--sp-4);
+  }
+
+  .topbar-actions {
+    flex-wrap: wrap;
+  }
+
+  .app-shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    grid-template-areas:
+      "stage"
+      "sidebar"
+      "rail";
+    overflow: visible;
+  }
+
+  .sidebar,
+  .rail {
+    overflow: visible;
+    max-height: none;
+  }
+}
+
+/* Los campos suben a 16 px para que iOS no haga zoom al enfocarlos. */
+@media (width <= 640px) {
+  .field-input,
+  .conf-slider {
+    font-size: var(--fs-lg);
+  }
+
+  .brand-tagline {
+    display: none;
+  }
+}

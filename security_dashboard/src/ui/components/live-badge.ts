@@ -1,22 +1,20 @@
 /**
- * Live badge component.
- * Shown on the preview container during an active webcam/live stream.
+ * Distintivo "EN VIVO" sobre la vista previa mientras hay un stream activo.
  */
 
-const BADGE_ID = "live-badge";
+const BADGE_CLASS = "live-badge";
 
 export const showLiveBadge = (container: HTMLElement, visible: boolean): void => {
-  const existing = document.getElementById(BADGE_ID);
+  const existing = container.querySelector(`.${BADGE_CLASS}`);
 
   if (!visible) {
     existing?.remove();
     return;
   }
-
-  if (existing) return; // already mounted
+  if (existing) return;
 
   const badge = document.createElement("div");
-  badge.id = BADGE_ID;
-  badge.innerHTML = `<span class="live-dot"></span> EN VIVO`;
+  badge.className = BADGE_CLASS;
+  badge.innerHTML = '<span class="live-dot" aria-hidden="true"></span><span>En vivo</span>';
   container.appendChild(badge);
 };

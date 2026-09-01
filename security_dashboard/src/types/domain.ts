@@ -1,31 +1,35 @@
-// ── Detection types ────────────────────────────────────────────────────────
+// ── Detecciones ────────────────────────────────────────────────────────────
+
+export type BoundingBox = [number, number, number, number]; // [x1, y1, x2, y2]
 
 export type DetectionPayload = {
   class: string;
   confidence: number;
-  bbox: [number, number, number, number]; // [x1, y1, x2, y2]
+  bbox: BoundingBox;
 };
 
-// ── Safety alert types ─────────────────────────────────────────────────────
+// ── Alertas de seguridad ───────────────────────────────────────────────────
 
 export type SafetyAlert = {
   /** Etiqueta legible generada por el backend (ej. "Arma Blanca Detectada"). */
   type: string;
   confidence: number;
-  bbox: [number, number, number, number];
-  /** Nombre de clase COCO en minúsculas (ej. "knife", "backpack"). */
+  bbox: BoundingBox;
+  /** Nombre de clase del modelo en minúsculas (ej. "knife", "backpack"). */
   class: string;
-  /** ID de la camara cuando proviene del dashboard multicamara. */
+  /** Etiqueta de la cámara cuando la alerta viene del panel multicámara. */
   cameraId?: string;
 };
 
-// ── Stream payload types ───────────────────────────────────────────────────
+// ── Payloads de stream ─────────────────────────────────────────────────────
 
 export type VideoFramePayload = {
   t?: number;
+  /** El backend envía el array completo o sólo el conteo, según el endpoint. */
   detections: DetectionPayload[] | number;
   alerts?: SafetyAlert[];
-  frame?: string; // base64-encoded JPEG
+  /** JPEG en base64 con las cajas ya dibujadas. */
+  frame?: string;
   done?: boolean;
 };
 
@@ -38,9 +42,9 @@ export type CameraEventPayload = {
   ts?: number;
 };
 
-// ── History types ──────────────────────────────────────────────────────────
+// ── Historial ──────────────────────────────────────────────────────────────
 
-export type HistorySource = "image" | "video" | "webcam" | "youtube";
+export type HistorySource = "image" | "video" | "webcam" | "youtube" | "camera";
 
 export type ClassCount = {
   class: string;
@@ -52,20 +56,35 @@ export type HistoryEntry = {
   id: string;
   timestamp: Date;
   source: HistorySource;
-  /** File name, URL fragment, or "Cámara en vivo". */
+  /** Nombre de archivo, fragmento de URL o "Cámara en vivo". */
   label: string;
   classCounts: ClassCount[];
   alerts: SafetyAlert[];
-  /** Number of frames analysed (undefined for single images). */
+  /** Fotogramas analizados (ausente en imágenes sueltas). */
   frameCount?: number;
 };
 
-// ── Payload helpers ────────────────────────────────────────────────────────
+// ── Métricas de sesión (tarjetas KPI) ──────────────────────────────────────
 
-/** Returns detection count regardless of whether backend sent array or integer. */
+export type SessionStats = {
+  /** Fotogramas recibidos desde que arrancó la fuente actual. */
+  frames: number;
+  /** Detecciones del último fotograma. */
+  detections: number;
+  /** Alertas acumuladas en la sesión. */
+  alerts: number;
+  /** Fotogramas por segundo observados en el cliente. */
+  fps: number;
+};
+
+export const emptyStats = (): SessionStats => ({ frames: 0, detections: 0, alerts: 0, fps: 0 });
+
+// ── Helpers de payload ─────────────────────────────────────────────────────
+
+/** Conteo de detecciones, venga el backend con array o con entero. */
 export const getDetectionCount = (d: DetectionPayload[] | number): number =>
   typeof d === "number" ? d : d.length;
 
-/** Returns detection array (empty array if backend only sent count). */
+/** Array de detecciones (vacío si el backend sólo mandó el conteo). */
 export const getDetectionArray = (d: DetectionPayload[] | number): DetectionPayload[] =>
   Array.isArray(d) ? d : [];

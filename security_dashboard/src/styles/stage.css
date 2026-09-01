@@ -1,0 +1,512 @@
+/* ════════════════════════════════════════════════════════════════════════
+   Escenario: cabecera, métricas, vista previa, cajas y rejilla multicámara
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ── Cabecera ───────────────────────────────────────────────────────────── */
+
+.stage-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+}
+
+.stage-heading {
+  min-width: 0;
+}
+
+.stage-title {
+  font-size: var(--fs-xl);
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  line-height: var(--lh-tight);
+  overflow-wrap: anywhere;
+}
+
+.stage-subtitle {
+  font-size: var(--fs-sm);
+  color: var(--text-subtle);
+  overflow-wrap: anywhere;
+}
+
+/* ── Tarjetas KPI ───────────────────────────────────────────────────────── */
+
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(96px, 1fr));
+  gap: var(--sp-2);
+}
+
+.stat-tile {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  transition: border-color var(--dur) var(--ease-out);
+}
+
+.stat-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-sm);
+  background: var(--surface-raised);
+  color: var(--text-subtle);
+}
+
+.stat-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.15;
+}
+
+.stat-value {
+  font-family: var(--font-mono);
+  font-size: var(--fs-lg);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-label {
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-subtle);
+}
+
+/* Con alertas la tarjeta cambia de color y de icono de fondo, no sólo de tono. */
+.stat-tile-alert {
+  border-color: rgb(251 113 133 / 40%);
+  background: var(--danger-soft);
+}
+
+.stat-tile-alert .stat-icon {
+  background: rgb(251 113 133 / 20%);
+  color: var(--danger);
+}
+
+.stat-tile-alert .stat-value {
+  color: var(--danger);
+}
+
+/* ── Vista previa ───────────────────────────────────────────────────────── */
+
+.preview-container {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background:
+    linear-gradient(rgb(148 163 184 / 4%) 1px, transparent 1px) 0 0 / 100% 28px,
+    linear-gradient(90deg, rgb(148 163 184 / 4%) 1px, transparent 1px) 0 0 / 28px 100%,
+    var(--surface-sunken);
+}
+
+.preview-media {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: var(--r-md);
+  grid-area: 1 / 1;
+}
+
+.preview-placeholder {
+  grid-area: 1 / 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--text-subtle);
+  text-align: center;
+}
+
+.placeholder-icon {
+  display: grid;
+  place-items: center;
+  width: 60px;
+  height: 60px;
+  border-radius: var(--r-full);
+  background: var(--surface-raised);
+  color: var(--text-subtle);
+}
+
+.placeholder-title {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.placeholder-hint {
+  font-size: var(--fs-sm);
+}
+
+/* ── Distintivo En vivo ─────────────────────────────────────────────────── */
+
+.live-badge {
+  position: absolute;
+  top: var(--sp-3);
+  left: var(--sp-3);
+  z-index: var(--z-overlay);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px var(--sp-2);
+  border: 1px solid rgb(251 113 133 / 35%);
+  border-radius: var(--r-full);
+  background: rgb(7 10 17 / 82%);
+  backdrop-filter: blur(6px);
+  font-size: var(--fs-xs);
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--danger);
+}
+
+.live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-full);
+  background: var(--danger);
+  animation: live-blink 1.4s ease-in-out infinite;
+}
+
+@keyframes live-blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot {
+    animation: none;
+  }
+}
+
+/* ── Cajas delimitadoras ────────────────────────────────────────────────── */
+
+.box-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-overlay);
+  pointer-events: none;
+}
+
+.overlay-box {
+  position: absolute;
+  border: 2px solid var(--box-color);
+  border-radius: 3px;
+  box-shadow: 0 0 18px color-mix(in srgb, var(--box-color) 35%, transparent);
+}
+
+.overlay-label {
+  position: absolute;
+  top: -20px;
+  left: -2px;
+  padding: 1px 6px;
+  border: 1px solid var(--box-color);
+  border-radius: var(--r-sm);
+  background: rgb(7 10 17 / 88%);
+  font-size: 10px;
+  font-weight: 650;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+/* ── Rejilla multicámara ────────────────────────────────────────────────── */
+
+.cam-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  align-content: start;
+  gap: var(--sp-3);
+  overflow-y: auto;
+  padding-right: var(--sp-1);
+}
+
+.cam-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  transition: border-color var(--dur) var(--ease-out);
+}
+
+.cam-card[data-state="error"] {
+  border-color: rgb(251 113 133 / 40%);
+}
+
+.cam-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.cam-card-icon,
+.cam-row-icon {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: var(--r-sm);
+  background: var(--surface-raised);
+  color: var(--text-subtle);
+}
+
+.cam-card-meta,
+.cam-row-meta {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.2;
+}
+
+.cam-card-title,
+.cam-row-title {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.cam-card-source,
+.cam-row-source {
+  font-size: var(--fs-xs);
+  color: var(--text-subtle);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cam-feed {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 9;
+  background: var(--surface-sunken);
+  color: var(--text-subtle);
+}
+
+.cam-stream {
+  grid-area: 1 / 1;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0;
+  transition: opacity var(--dur-slow) var(--ease-out);
+}
+
+.cam-stream.is-visible {
+  opacity: 1;
+}
+
+.cam-feed-placeholder {
+  grid-area: 1 / 1;
+}
+
+/* ── Estado de cámara ───────────────────────────────────────────────────── */
+
+.cam-state {
+  flex: none;
+  padding: 2px var(--sp-2);
+  border-radius: var(--r-full);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  background: var(--neutral-soft);
+  color: var(--text-muted);
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cam-state[data-state="live"] {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.cam-state[data-state="connecting"] {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.cam-state[data-state="error"] {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+/* ── Lista de cámaras del lateral ───────────────────────────────────────── */
+
+.cam-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.cam-list:empty {
+  display: none;
+}
+
+.cam-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-sunken);
+}
+
+/* ── Lista de detecciones ───────────────────────────────────────────────── */
+
+.results-list {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  overflow-y: auto;
+  padding-right: var(--sp-1);
+}
+
+.results-hint {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  padding: var(--sp-2) 0;
+}
+
+.detection-card {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--detection-color);
+  border-radius: var(--r-md);
+  background: var(--surface-raised);
+  animation: card-in var(--dur) var(--ease-out);
+}
+
+.detection-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--detection-color) 14%, transparent);
+  color: var(--detection-color);
+}
+
+.detection-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.detection-name {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detection-meter {
+  display: block;
+  height: 3px;
+  border-radius: var(--r-full);
+  background: var(--border);
+  overflow: hidden;
+}
+
+.detection-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-full);
+  background: var(--detection-color);
+}
+
+.detection-conf {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--detection-color);
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .detection-card {
+    animation: none;
+  }
+}
+
+/* ── Ajustes de tamaño ──────────────────────────────────────────────────── */
+
+@media (width <= 1280px) {
+  .stat-row {
+    grid-template-columns: repeat(4, minmax(84px, 1fr));
+  }
+
+  .results-list {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .results-list .detection-card {
+    flex: 0 0 210px;
+  }
+
+  .results-list .empty-state {
+    flex: 1;
+    padding: var(--sp-4);
+  }
+}
+
+@media (width <= 900px) {
+  .stage-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .stat-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .preview-container {
+    aspect-ratio: 16 / 9;
+    min-height: 220px;
+  }
+
+  .cam-grid {
+    overflow: visible;
+  }
+}

@@ -65,6 +65,46 @@ CAMERA_TARGET_WIDTH = 360
 CAMERA_FRAME_SKIP = 4
 CAMERA_JPEG_QUALITY = 45
 
+# Umbral de confianza: el dashboard lo envía como ?conf=; si no llega, se usa
+# el valor por defecto de cada endpoint.
+MIN_CONF = 0.05
+MAX_CONF = 0.95
+DEFAULT_IMAGE_CONF = 0.25
+DEFAULT_STREAM_CONF = 0.35
+
+
+def _resolve_conf(value: float | None, default: float) -> float:
+    """Acota el umbral recibido al rango admitido por el modelo."""
+    if value is None:
+        return default
+    return max(MIN_CONF, min(MAX_CONF, float(value)))
+
+
+# ── Formatos admitidos ─────────────────────────────────────────────────────
+# La política es permisiva a propósito: OpenCV/FFMPEG abre muchos más
+# contenedores de los que el navegador sabe etiquetar, y los MIME de .mkv o
+# .avi llegan a menudo vacíos o como application/octet-stream.
+
+IMAGE_EXTENSIONS = {
+    ".jpg", ".jpeg", ".jpe", ".png", ".webp", ".bmp", ".gif", ".tif", ".tiff",
+    ".avif", ".jfif", ".pgm", ".ppm", ".pbm", ".dib", ".heic", ".heif",
+    ".dng", ".mpo",
+}
+
+VIDEO_EXTENSIONS = {
+    ".mp4", ".m4v", ".mov", ".avi", ".mkv", ".webm", ".mpeg", ".mpg", ".m2v",
+    ".wmv", ".flv", ".f4v", ".3gp", ".3g2", ".ogv", ".ogm", ".ts", ".mts",
+    ".m2ts", ".mxf", ".asf", ".divx", ".vob", ".dav",
+}
+
+
+def _upload_matches(file: UploadFile, kind: str, extensions: set[str]) -> bool:
+    """True si el MIME o la extensión identifican el archivo como `kind`."""
+    content_type = (file.content_type or "").split(";")[0].strip().lower()
+    if content_type.startswith(f"{kind}/"):
+        return True
+    return os.path.splitext(file.filename or "")[1].lower() in extensions
+
 
 @app.middleware("http")
 async def add_localtunnel_bypass_header(request: Request, call_next):
@@ -232,10 +272,15 @@ class PredictionResponse(BaseModel):
 
 
 @app.post("/predict")
-async def predict(file: UploadFile = File(...)):
-    """Analyze a single image and return detection array, safety alerts, and annotated frame."""
-    if file.content_type not in {"image/jpeg", "image/png", "image/bmp", "image/webp"}:
-        raise HTTPException(status_code=415, detail="Solo se aceptan imágenes")
+async def predict(file: UploadFile = File(...), conf: float | None = None):
+    """Analiza una imagen y devuelve detecciones, alertas y el fotograma anotado."""
+    if not _upload_matches(file, "image", IMAGE_EXTENSIONS):
+        raise HTTPException(
+            status_code=415,
+            detail=f"Formato de imagen no admitido: {file.filename or 'archivo'}",
+        )
+
+    threshold = _resolve_conf(conf, DEFAULT_IMAGE_CONF)
 
     suffix = os.path.splitext(file.filename or "image")[-1]
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
@@ -244,13 +289,22 @@ async def predict(file: UploadFile = File(...)):
         temp_path = tmp.name
 
     try:
-        results = await asyncio.to_thread(
-            global_model,
-            temp_path,
-            conf=0.25,
-            classes=TARGET_IDS,
-            verbose=False,
-        )
+        try:
+            results = await asyncio.to_thread(
+                global_model,
+                temp_path,
+                conf=threshold,
+                classes=TARGET_IDS,
+                verbose=False,
+            )
+        except Exception as exc:
+            # Extensión plausible que el decodificador no sabe abrir (HEIC sin
+            # libheif, TIFF exótico...). Mejor un 415 claro que un 500 opaco.
+            raise HTTPException(
+                status_code=415,
+                detail=f"No se pudo decodificar la imagen ({file.filename}): {exc}",
+            ) from exc
+
         detections = _extract_detections(global_model, results)
         alerts = detect_security_alerts(detections)
 
@@ -258,6 +312,13 @@ async def predict(file: UploadFile = File(...)):
             annotated = results[0].plot(conf=True, line_width=4, font_size=1.5, labels=True)
         else:
             annotated = cv2.imread(temp_path)
+
+        if annotated is None:
+            raise HTTPException(
+                status_code=415,
+                detail=f"No se pudo leer la imagen ({file.filename}).",
+            )
+
         _, buffer = cv2.imencode(".jpg", annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
         frame_b64 = base64.b64encode(buffer).decode("utf-8")
 
@@ -299,14 +360,19 @@ def _open_video_capture(source) -> cv2.VideoCapture:
             return cv2.VideoCapture(source)
 
 
-async def _stream_stable_detections(path: str | int, is_stream: bool = False) -> AsyncGenerator[str, None]:
+async def _stream_stable_detections(
+    path: str | int,
+    is_stream: bool = False,
+    conf: float = DEFAULT_STREAM_CONF,
+) -> AsyncGenerator[str, None]:
     """
-    Stream video frames with detections drawn on them (Colab style).
-    Returns SSE events with: {"detections": count, "frame": base64_jpeg_with_boxes}
-    
+    Emite los fotogramas anotados como eventos SSE:
+    {"detections": [...], "alerts": [...], "frame": "<jpeg base64>"}
+
     Args:
-        path: Video file path, webcam index (int), or stream URL (str)
-        is_stream: If True, keep retrying on read failures (for live streams)
+        path: ruta de video, índice de webcam (int) o URL del stream (str)
+        is_stream: si es True, reintenta ante fallos de lectura (fuentes en vivo)
+        conf: umbral de confianza del modelo
     """
     count = 0
 
@@ -344,7 +410,7 @@ async def _stream_stable_detections(path: str | int, is_stream: bool = False) ->
             results = await asyncio.to_thread(
                 global_model,
                 frame,
-                conf=0.35,
+                conf=conf,
                 classes=TARGET_IDS,
                 verbose=False,
             )
@@ -379,14 +445,17 @@ async def _stream_stable_detections(path: str | int, is_stream: bool = False) ->
 # ─────────────────────────────────────────────────────────────────────────────
 # YouTube endpoint
 # ─────────────────────────────────────────────────────────────────────────────
+# Cubre watch, youtu.be, shorts, live, embed y los subdominios m./music.
 YOUTUBE_REGEX = re.compile(
-    r"(https?://)?(www\.)?(youtube\.com/watch\?v=|youtu\.be/)[\w-]+"
+    r"(https?://)?((www|m|music)\.)?"
+    r"(youtube\.com/(watch\?(\S*&)?v=|shorts/|live/|embed/|v/)|youtu\.be/)"
+    r"[\w-]{6,}"
 )
 
 
 @app.post("/predict/youtube")
-async def predict_youtube(payload: dict) -> StreamingResponse:
-    """Stream YouTube video analysis using direct stream URL (no download)."""
+async def predict_youtube(payload: dict, conf: float | None = None) -> StreamingResponse:
+    """Analiza un video de YouTube leyendo su stream directo, sin descargarlo."""
     url: str = (payload.get("url") or "").strip()
     if not url or not YOUTUBE_REGEX.search(url):
         raise HTTPException(status_code=422, detail="URL de YouTube no válida")
@@ -407,7 +476,9 @@ async def predict_youtube(payload: dict) -> StreamingResponse:
         raise HTTPException(status_code=502, detail=f"Error al extraer video: {str(exc)}")
 
     return StreamingResponse(
-        _stream_stable_detections(stream_url, is_stream=True),
+        _stream_stable_detections(
+            stream_url, is_stream=True, conf=_resolve_conf(conf, DEFAULT_STREAM_CONF)
+        ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -416,21 +487,20 @@ async def predict_youtube(payload: dict) -> StreamingResponse:
 # ─────────────────────────────────────────────────────────────────────────────
 # Video upload endpoint
 # ─────────────────────────────────────────────────────────────────────────────
-VIDEO_TYPES = {
-    "video/mp4", "video/avi", "video/x-msvideo", "video/quicktime",
-    "video/x-matroska", "video/webm", "video/mpeg",
-}
-
-
 @app.post("/predict/video")
-async def predict_video(file: UploadFile = File(...)) -> StreamingResponse:
-    """Stream uploaded video analysis."""
-    content_type = (file.content_type or "").split(";")[0].strip()
+async def predict_video(
+    file: UploadFile = File(...),
+    conf: float | None = None,
+) -> StreamingResponse:
+    """Analiza un video subido y emite los fotogramas anotados por SSE."""
+    if not _upload_matches(file, "video", VIDEO_EXTENSIONS):
+        raise HTTPException(
+            status_code=415,
+            detail=f"Formato de video no admitido: {file.filename or 'archivo'}",
+        )
+
     ext = os.path.splitext(file.filename or "")[1].lower()
-    allowed_exts = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".mpeg", ".mpg"}
-    
-    if content_type not in VIDEO_TYPES and ext not in allowed_exts:
-        raise HTTPException(status_code=415, detail="Solo se aceptan videos")
+    threshold = _resolve_conf(conf, DEFAULT_STREAM_CONF)
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=ext or ".mp4") as tmp:
         content = await file.read()
@@ -439,7 +509,9 @@ async def predict_video(file: UploadFile = File(...)) -> StreamingResponse:
 
     async def _stream_and_cleanup():
         try:
-            async for chunk in _stream_stable_detections(temp_path, is_stream=False):
+            async for chunk in _stream_stable_detections(
+                temp_path, is_stream=False, conf=threshold
+            ):
                 yield chunk
         finally:
             try:
@@ -477,6 +549,7 @@ def _get_camera_source(device_index: int | None, camera_source: str | None) -> s
 async def predict_webcam(
     device_index: int | None = None,
     camera_source: str | None = None,
+    conf: float | None = None,
 ) -> StreamingResponse:
     """
     Stream webcam/camera analysis.
@@ -502,7 +575,9 @@ async def predict_webcam(
     await asyncio.sleep(0.2)
 
     return StreamingResponse(
-        _stream_stable_detections(source, is_stream=True),
+        _stream_stable_detections(
+            source, is_stream=True, conf=_resolve_conf(conf, DEFAULT_STREAM_CONF)
+        ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

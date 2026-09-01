@@ -1,18 +1,23 @@
 /**
- * Detection API service.
- * All network communication with the vision backend lives here.
- * Functions are pure: they receive inputs and return results/controllers.
+ * Cliente HTTP del backend de visión.
+ *
+ * Toda la comunicación de red vive aquí. Las funciones no tocan el DOM:
+ * reciben entradas y devuelven resultados o `AbortController` para cancelar.
+ * Las URLs se resuelven en cada llamada porque la URL base es cambiable en
+ * caliente (ver `core/backend.store.ts`).
  */
 
 import {
-  API_URL,
-  CAMERA_ADD_URL,
-  CAMERA_EVENTS_URL,
-  CAMERA_STREAM_URL,
-  VIDEO_API_URL,
-  WEBCAM_API_URL,
-  YOUTUBE_API_URL,
-} from "../config/env";
+  cameraAddUrl,
+  cameraEventsUrl,
+  cameraStreamUrl,
+  commonHeaders,
+  predictImageUrl,
+  predictVideoUrl,
+  predictWebcamUrl,
+  predictYoutubeUrl,
+} from "../config/endpoints";
+import { getConfidence } from "../core/settings.store";
 import type {
   CameraEventPayload,
   DetectionPayload,
@@ -21,254 +26,252 @@ import type {
   WebcamFramePayload,
 } from "../types/domain";
 
-// ── SSE stream reader helper ───────────────────────────────────────────────
+// ── Utilidades comunes ─────────────────────────────────────────────────────
 
+/** Añade el umbral de confianza activo como query param. */
+const withConfidence = (url: string, extra?: Record<string, string>): string => {
+  const params = new URLSearchParams({ conf: getConfidence().toFixed(2), ...extra });
+  return `${url}?${params.toString()}`;
+};
+
+/** Extrae el mensaje de error más útil que traiga la respuesta. */
+const readErrorMessage = async (response: Response): Promise<string> => {
+  const payload = await response.json().catch(() => null);
+  const detail =
+    payload && typeof payload === "object" ? (payload as { detail?: unknown }).detail : null;
+  if (typeof detail === "string" && detail.trim()) return detail;
+  return `El backend respondió ${response.status} ${response.statusText}`.trim();
+};
+
+const isAbort = (err: unknown): boolean =>
+  err instanceof DOMException ? err.name === "AbortError" : (err as Error)?.name === "AbortError";
+
+const toError = (err: unknown): Error =>
+  err instanceof Error
+    ? err
+    : new Error("No se pudo contactar con el backend. Revisa la URL configurada.");
+
+// ── Lector de streams SSE ──────────────────────────────────────────────────
+
+/**
+ * Consume un `text/event-stream` y entrega cada evento `data:` ya parseado.
+ * Un evento con `{ "done": true }` cierra el stream limpiamente.
+ */
 async function readSseStream<T>(
   response: Response,
   onEvent: (payload: T) => void,
-  onDone: () => void
+  onDone: () => void,
 ): Promise<void> {
   const reader = response.body?.getReader();
-  if (!reader) throw new Error("No response body");
+  if (!reader) throw new Error("La respuesta del backend no trae cuerpo legible");
 
   const decoder = new TextDecoder();
   let buffer = "";
 
-  while (true) {
-    let done = false;
-    let value: Uint8Array | undefined;
-    try {
-      ({ done, value } = await reader.read());
-    } catch {
-      break;
-    }
-    if (done) break;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
 
-    buffer += decoder.decode(value, { stream: true });
-    const chunks = buffer.split("\n\n");
-    buffer = chunks.pop() ?? "";
+      buffer += decoder.decode(value, { stream: true });
+      const chunks = buffer.split("\n\n");
+      buffer = chunks.pop() ?? "";
 
-    for (const chunk of chunks) {
-      const line = chunk.trim();
-      if (!line.startsWith("data:")) continue;
-      try {
-        const json = JSON.parse(line.slice(5).trim());
-        if (json.done) { onDone(); return; }
+      for (const chunk of chunks) {
+        const line = chunk.trim();
+        if (!line.startsWith("data:")) continue;
+
+        let json: unknown;
+        try {
+          json = JSON.parse(line.slice(5).trim());
+        } catch {
+          continue; // evento SSE malformado: se ignora
+        }
+
+        if ((json as { done?: boolean })?.done) {
+          onDone();
+          return;
+        }
         onEvent(json as T);
-      } catch {
-        /* skip malformed SSE events */
       }
     }
+  } finally {
+    reader.cancel().catch(() => {});
   }
+
   onDone();
 }
 
-// ── Image prediction ───────────────────────────────────────────────────────
+/**
+ * Envuelve el ciclo completo de un stream SSE: petición, validación de la
+ * respuesta y lectura. Centraliza el manejo de errores y cancelación que
+ * antes estaba duplicado en cada endpoint.
+ */
+const openSseStream = <T>(
+  buildRequest: (signal: AbortSignal) => Promise<Response>,
+  onEvent: (payload: T) => void,
+  onDone: () => void,
+  onError: (err: Error) => void,
+): AbortController => {
+  const controller = new AbortController();
+
+  void (async () => {
+    let response: Response;
+    try {
+      response = await buildRequest(controller.signal);
+    } catch (err) {
+      if (!isAbort(err)) onError(toError(err));
+      return;
+    }
+
+    if (!response.ok) {
+      onError(new Error(await readErrorMessage(response)));
+      return;
+    }
+
+    try {
+      await readSseStream<T>(response, onEvent, onDone);
+    } catch (err) {
+      if (!isAbort(err)) onError(toError(err));
+    }
+  })();
+
+  return controller;
+};
+
+// ── Imagen ─────────────────────────────────────────────────────────────────
 
 export type ImagePredictionResult = {
   detections: DetectionPayload[];
   alerts: SafetyAlert[];
-  frame?: string; // base64 JPEG with bounding boxes drawn by backend
-  image?: string; // legacy key
+  /** JPEG base64 con las cajas ya dibujadas por el backend. */
+  frame?: string;
 };
 
 export const uploadAndPredict = async (file: File): Promise<ImagePredictionResult> => {
   const formData = new FormData();
   formData.append("file", file);
 
-  const response = await fetch(API_URL, { method: "POST", body: formData });
+  const response = await fetch(withConfidence(predictImageUrl()), {
+    method: "POST",
+    headers: commonHeaders(),
+    body: formData,
+  });
 
-  if (!response.ok) {
-    throw new Error(`Error del servidor (${response.status})`);
-  }
+  if (!response.ok) throw new Error(await readErrorMessage(response));
 
-  const data: {
-    detections: DetectionPayload[];
+  const data = (await response.json()) as {
+    detections?: DetectionPayload[];
     alerts?: SafetyAlert[];
     frame?: string;
     image?: string;
-  } = await response.json();
+  };
+
   return {
     detections: data.detections ?? [],
     alerts: data.alerts ?? [],
-    frame: data.frame,
-    image: data.image,
+    frame: data.frame ?? data.image,
   };
 };
 
-// ── Video stream ───────────────────────────────────────────────────────────
+// ── Video subido ───────────────────────────────────────────────────────────
 
 export const streamVideoDetections = (
   file: File,
   onFrame: (frame: VideoFramePayload) => void,
   onDone: () => void,
-  onError: (err: Error) => void
+  onError: (err: Error) => void,
 ): AbortController => {
-  const controller = new AbortController();
+  const formData = new FormData();
+  formData.append("file", file);
 
-  (async () => {
-    const formData = new FormData();
-    formData.append("file", file);
-
-    let response: Response;
-    try {
-      response = await fetch(VIDEO_API_URL, {
+  return openSseStream<VideoFramePayload>(
+    (signal) =>
+      fetch(withConfidence(predictVideoUrl()), {
         method: "POST",
+        headers: commonHeaders(),
         body: formData,
-        signal: controller.signal,
-      });
-    } catch (e) {
-      if ((e as Error).name !== "AbortError") onError(e as Error);
-      return;
-    }
-
-    if (!response.ok) { onError(new Error(`Error del servidor (${response.status})`)); return; }
-
-    try {
-      await readSseStream<VideoFramePayload>(response, onFrame, onDone);
-    } catch (e) {
-      onError(e as Error);
-    }
-  })();
-
-  return controller;
+        signal,
+      }),
+    onFrame,
+    onDone,
+    onError,
+  );
 };
 
-// ── YouTube stream ─────────────────────────────────────────────────────────
+// ── YouTube ────────────────────────────────────────────────────────────────
 
 export const streamYoutubeDetections = (
   url: string,
   onFrame: (frame: VideoFramePayload) => void,
   onDone: () => void,
-  onError: (err: Error) => void
-): AbortController => {
-  const controller = new AbortController();
-
-  (async () => {
-    let response: Response;
-    try {
-      response = await fetch(YOUTUBE_API_URL, {
+  onError: (err: Error) => void,
+): AbortController =>
+  openSseStream<VideoFramePayload>(
+    (signal) =>
+      fetch(withConfidence(predictYoutubeUrl()), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { ...commonHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ url }),
-        signal: controller.signal,
-      });
-    } catch (e) {
-      if ((e as Error).name !== "AbortError") onError(e as Error);
-      return;
-    }
+        signal,
+      }),
+    onFrame,
+    onDone,
+    onError,
+  );
 
-    if (!response.ok) {
-      const detail = await response.json().catch(() => ({ detail: response.statusText }));
-      onError(new Error(detail.detail ?? `Error ${response.status}`));
-      return;
-    }
+// ── Cámara en vivo (fuente única) ──────────────────────────────────────────
 
-    try {
-      await readSseStream<VideoFramePayload>(response, onFrame, onDone);
-    } catch (e) {
-      onError(e as Error);
-    }
-  })();
-
-  return controller;
-};
-
-// ── Webcam stream ──────────────────────────────────────────────────────────
-
-export interface WebcamStreamOptions {
+export type WebcamStreamOptions = {
+  /** URL de cámara IP/DroidCam o índice de dispositivo. Vacío = cámara por defecto. */
   cameraSource?: string;
-}
+};
 
 export const streamWebcamDetections = (
   onFrame: (frame: WebcamFramePayload) => void,
   onDone: () => void,
   onError: (err: Error) => void,
-  options?: WebcamStreamOptions
+  options?: WebcamStreamOptions,
 ): AbortController => {
-  const controller = new AbortController();
+  const extra = options?.cameraSource ? { camera_source: options.cameraSource } : undefined;
 
-  (async () => {
-    const params = new URLSearchParams();
-    if (options?.cameraSource) params.set("camera_source", options.cameraSource);
-
-    let response: Response;
-    try {
-      const url = params.toString() ? `${WEBCAM_API_URL}?${params.toString()}` : WEBCAM_API_URL;
-      response = await fetch(url, {
+  return openSseStream<WebcamFramePayload>(
+    (signal) =>
+      fetch(withConfidence(predictWebcamUrl(), extra), {
         method: "GET",
-        signal: controller.signal,
-      });
-    } catch (e) {
-      if ((e as Error).name !== "AbortError") onError(e as Error);
-      return;
-    }
-
-    if (!response.ok) {
-      const detail = await response.json().catch(() => ({ detail: response.statusText }));
-      onError(new Error(detail.detail ?? `Error ${response.status}`));
-      return;
-    }
-
-    try {
-      await readSseStream<WebcamFramePayload>(response, onFrame, onDone);
-    } catch (e) {
-      onError(e as Error);
-    }
-  })();
-
-  return controller;
+        headers: commonHeaders(),
+        signal,
+      }),
+    onFrame,
+    onDone,
+    onError,
+  );
 };
 
-// ── Multicam management ───────────────────────────────────────────────────
+// ── Multicámara ────────────────────────────────────────────────────────────
 
 export const addCameraSource = async (camId: string, source: string): Promise<void> => {
-  const response = await fetch(CAMERA_ADD_URL, {
+  const response = await fetch(cameraAddUrl(), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { ...commonHeaders(), "Content-Type": "application/json" },
     body: JSON.stringify({ cam_id: camId, source }),
   });
 
-  if (!response.ok) {
-    const detail = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new Error(detail.detail ?? `Error ${response.status}`);
-  }
+  if (!response.ok) throw new Error(await readErrorMessage(response));
 };
 
-export const cameraStreamUrl = (camId: string): string => CAMERA_STREAM_URL(camId);
+/** URL MJPEG de una cámara ya registrada, para usar en `<img src>`. */
+export const mjpegStreamUrl = (camId: string): string => cameraStreamUrl(camId);
 
 export const streamCameraEvents = (
   camId: string,
   onEvent: (payload: CameraEventPayload) => void,
   onDone: () => void,
-  onError: (err: Error) => void
-): AbortController => {
-  const controller = new AbortController();
-
-  (async () => {
-    let response: Response;
-    try {
-      response = await fetch(CAMERA_EVENTS_URL(camId), {
-        method: "GET",
-        signal: controller.signal,
-      });
-    } catch (e) {
-      if ((e as Error).name !== "AbortError") onError(e as Error);
-      return;
-    }
-
-    if (!response.ok) {
-      const detail = await response.json().catch(() => ({ detail: response.statusText }));
-      onError(new Error(detail.detail ?? `Error ${response.status}`));
-      return;
-    }
-
-    try {
-      await readSseStream<CameraEventPayload>(response, onEvent, onDone);
-    } catch (e) {
-      onError(e as Error);
-    }
-  })();
-
-  return controller;
-};
+  onError: (err: Error) => void,
+): AbortController =>
+  openSseStream<CameraEventPayload>(
+    (signal) => fetch(cameraEventsUrl(camId), { method: "GET", headers: commonHeaders(), signal }),
+    onEvent,
+    onDone,
+    onError,
+  );

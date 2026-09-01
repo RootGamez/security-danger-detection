@@ -1,21 +1,29 @@
 /**
- * Multicamera feature — manages parallel sources for YouTube, URLs, and files.
+ * Panel multicámara: varias fuentes analizándose en paralelo.
+ *
+ * Cada fuente añade una tarjeta a la rejilla y una fila al lateral, y se
+ * queda con su propio `AbortController` para poder cerrarse por separado.
+ * Al activarse, la rejilla reemplaza a la vista previa de fuente única.
  */
 
+import { classifyFile, formatLabel } from "../config/media";
 import {
   addCameraSource,
-  cameraStreamUrl,
+  mjpegStreamUrl,
   streamCameraEvents,
-  streamYoutubeDetections,
   streamVideoDetections,
+  streamYoutubeDetections,
   uploadAndPredict,
 } from "../services/detection.api";
-import type { AppState } from "../state/app.state";
-import type { DetectionPayload, SafetyAlert, VideoFramePayload } from "../types/domain";
-import type { UIRefs } from "../ui/refs";
-import { resetPreview } from "../ui/components/preview";
-import { setStatus } from "../ui/components/status";
+import type { SafetyAlert } from "../types/domain";
 import { showAlertToasts } from "../ui/components/alert-toast";
+import { createCameraCard, type CameraCardController } from "../ui/components/camera-card";
+import { clearPreview } from "../ui/components/preview";
+import { renderMultiCamNotice, resetResults } from "../ui/components/results";
+import { setStageHeader, setStatus } from "../ui/components/status";
+import { countLabel } from "../ui/utils/format";
+import type { IconName } from "../ui/utils/icons";
+import type { FeatureContext } from "./context";
 
 export type MultiCamHandlers = {
   addFromYoutube: (url: string) => void;
@@ -24,179 +32,216 @@ export type MultiCamHandlers = {
   stopAll: () => void;
 };
 
-const setMultiCamActive = (refs: UIRefs, active: boolean): void => {
-  refs.previewContainer.classList.toggle("hidden", active);
-  refs.multiCamGrid.classList.toggle("hidden", !active);
-};
+/** Etiqueta la alerta con la cámara de origen antes de mostrar el toast. */
+const toastFor = (alerts: SafetyAlert[] | undefined, cameraTitle: string): number =>
+  showAlertToasts(alerts?.map((alert) => ({ ...alert, cameraId: cameraTitle })));
 
-const createCameraCard = (title: string, source: string): HTMLElement => {
-  const card = document.createElement("div");
-  card.className = "camera-card";
-  card.dataset.id = title;
-  card.innerHTML = `
-    <div class="camera-card-header">
-      <div class="camera-title-group">
-        <span class="camera-title">${title}</span>
-        <span class="camera-source">${source}</span>
-      </div>
-      <span class="camera-status">Conectando...</span>
-    </div>
-    <div class="camera-feed">
-      <img class="camera-stream" alt="${title}" />
-    </div>
-  `;
-  return card;
-};
-
-const createCameraListItem = (title: string, source: string): HTMLElement => {
-  const item = document.createElement("div");
-  item.className = "camera-list-item";
-  item.dataset.id = title;
-  item.innerHTML = `
-    <div>
-      <p class="camera-list-title">${title}</p>
-      <p class="camera-list-sub">${source}</p>
-    </div>
-    <span class="camera-list-pill">Activo</span>
-  `;
-  return item;
-};
-
-const updateCameraStatus = (card: HTMLElement): void => {
-  const statusEl = card.querySelector<HTMLElement>(".camera-status");
-  if (statusEl) statusEl.textContent = "En vivo";
-};
-
-const updateFrame = (card: HTMLElement, frame?: string): void => {
-  if (!frame) return;
-  const img = card.querySelector<HTMLImageElement>(".camera-stream");
-  if (img) img.src = `data:image/jpeg;base64,${frame}`;
-};
-
-export const createMultiCamHandler = (
-  refs: UIRefs,
-  state: AppState,
-  stopStream: () => void
-): MultiCamHandlers => {
+export const createMultiCamHandler = (ctx: FeatureContext): MultiCamHandlers => {
+  const { refs, state, stats } = ctx;
   let nextIndex = 1;
 
-  const setupCard = (sourceLabel: string): { camId: string; title: string; card: HTMLElement } => {
-    const index = nextIndex++;
-    const camId = `cam-${index}`;
-    const title = `Camara ${index}`;
-    const card = createCameraCard(title, sourceLabel);
-    const listItem = createCameraListItem(title, sourceLabel);
-    refs.multiCamGrid.appendChild(card);
-    refs.multiCamList.appendChild(listItem);
-    setMultiCamActive(refs, true);
-    state.multiCamActive = true;
-    resetPreview(refs);
-    return { camId, title, card };
+  /** Última cuenta de detecciones por cámara, para agregar el KPI global. */
+  const detectionsByCamera = new Map<string, number>();
+
+  /**
+   * Suma las detecciones vigentes de todas las cámaras y contabiliza el
+   * fotograma. Así las tarjetas KPI siguen significando algo en modo rejilla.
+   */
+  const recordCameraFrame = (camId: string, detections: number, alerts: number): void => {
+    detectionsByCamera.set(camId, detections);
+    let total = 0;
+    detectionsByCamera.forEach((count) => {
+      total += count;
+    });
+    stats.recordFrame(total, alerts);
   };
 
+  // ── Visibilidad de la rejilla ────────────────────────────────────────────
+
+  const syncGridVisibility = (): void => {
+    const active = state.cameras.size > 0;
+    state.multiCamActive = active;
+
+    refs.previewContainer.classList.toggle("hidden", active);
+    refs.multiCamGrid.classList.toggle("hidden", !active);
+    refs.multiCamStopBtn.classList.toggle("hidden", !active);
+    refs.multiCamCount.textContent = countLabel(state.cameras.size, "activa", "activas");
+    refs.multiCamGrid.dataset.count = String(state.cameras.size);
+
+    if (active) {
+      setStageHeader(
+        refs,
+        "Panel multicámara",
+        `${countLabel(state.cameras.size, "fuente", "fuentes")} analizándose en paralelo`,
+      );
+    }
+  };
+
+  const removeCamera = (camId: string): void => {
+    const slot = state.cameras.get(camId);
+    if (!slot) return;
+
+    slot.controller.abort();
+    slot.card.destroy();
+    state.cameras.delete(camId);
+    detectionsByCamera.delete(camId);
+
+    if (state.cameras.size === 0) {
+      clearPreview(refs);
+      stats.reset();
+      resetResults(refs);
+      setStageHeader(refs, "Sin fuente activa", "Elige un archivo, una cámara o una URL para empezar.");
+      setStatus(refs, "Panel multicámara detenido", false);
+    }
+    syncGridVisibility();
+  };
+
+  /**
+   * Crea la tarjeta y la deja montada. El `AbortController` se registra
+   * después, cuando la feature concreta abre su stream.
+   */
+  const mountCard = (source: string, iconName: IconName): CameraCardController => {
+    // La primera cámara desaloja la vista de fuente única y reinicia lo que
+    // quedara en pantalla de la sesión anterior.
+    if (state.cameras.size === 0) {
+      ctx.stopStream();
+      stats.reset();
+      renderMultiCamNotice(refs);
+    }
+
+    const camId = `cam-${nextIndex}`;
+    const card = createCameraCard({
+      camId,
+      title: `Cámara ${nextIndex}`,
+      source,
+      iconName,
+      onRemove: () => removeCamera(camId),
+    });
+    nextIndex++;
+
+    refs.multiCamGrid.appendChild(card.card);
+    refs.multiCamList.appendChild(card.listItem);
+    return card;
+  };
+
+  const register = (card: CameraCardController, controller: AbortController): void => {
+    state.cameras.set(card.camId, { controller, card });
+    syncGridVisibility();
+  };
+
+  // ── Altas por tipo de fuente ─────────────────────────────────────────────
+
   const addFromYoutube = (url: string): void => {
-    const normalizedUrl = url.trim();
-    if (!normalizedUrl) {
-      setStatus(refs, "Ingresa una URL de YouTube", false);
+    const normalized = url.trim();
+    if (!normalized) {
+      setStatus(refs, "Escribe una URL de YouTube", false);
       return;
     }
 
-    if (!state.multiCamActive) stopStream();
-    const { camId, title, card } = setupCard("YouTube");
-    setStatus(refs, `Conectando ${title}...`, true);
+    const card = mountCard(normalized, "youtube");
+    setStatus(refs, `Conectando ${card.title}…`, true);
 
     const controller = streamYoutubeDetections(
-      normalizedUrl,
+      normalized,
       (frame) => {
-        const detections = Array.isArray(frame.detections) ? frame.detections : [];
-        updateFrame(card, frame.frame);
-        updateCameraStatus(card);
-        if (frame.alerts?.length) {
-          showAlertToasts(frame.alerts.map((a) => ({ ...a, cameraId: title })));
-        }
+        card.setFrame(frame.frame);
+        card.setState("live");
+        recordCameraFrame(
+          card.camId,
+          Array.isArray(frame.detections) ? frame.detections.length : frame.detections,
+          toastFor(frame.alerts, card.title),
+        );
       },
       () => {
-        card.querySelector(".camera-status")!.textContent = "Finalizada";
-        setStatus(refs, `${title} finalizada`, false);
+        card.setState("done");
+        setStatus(refs, `${card.title} finalizada`, false);
       },
       (err) => {
-        card.querySelector(".camera-status")!.textContent = "Error";
-        setStatus(refs, `Error en ${title}: ${err.message}`, false);
-      }
+        card.setState("error", err.message);
+        setStatus(refs, `Error en ${card.title}: ${err.message}`, false);
+      },
     );
 
-    state.multiCamControllers.set(camId, controller);
+    register(card, controller);
   };
 
   const addFromUrl = (source: string): void => {
-    const normalizedSource = source.trim();
-    if (!normalizedSource) {
-      setStatus(refs, "Ingresa una URL de camara", false);
+    const normalized = source.trim();
+    if (!normalized) {
+      setStatus(refs, "Escribe una URL de cámara", false);
       return;
     }
 
-    if (!state.multiCamActive) stopStream();
-    const { camId, title, card } = setupCard(normalizedSource);
-    setStatus(refs, `Conectando ${title}...`, true);
+    const card = mountCard(normalized, "link");
+    setStatus(refs, `Conectando ${card.title}…`, true);
 
-    (async () => {
+    // Se registra ya con un controller propio: si el alta falla o el usuario
+    // cierra la tarjeta antes de tiempo, `abort()` corta la petición en curso.
+    const controller = new AbortController();
+    register(card, controller);
+
+    void (async () => {
       try {
-        await addCameraSource(camId, normalizedSource);
+        await addCameraSource(card.camId, normalized);
       } catch (err) {
-        const message = err instanceof Error ? err.message : "No se pudo conectar la camara";
-        card.querySelector(".camera-status")!.textContent = "Error";
-        setStatus(refs, `Error en ${title}: ${message}`, false);
+        const message = err instanceof Error ? err.message : "No se pudo conectar la cámara";
+        card.setState("error", message);
+        setStatus(refs, `Error en ${card.title}: ${message}`, false);
         return;
       }
 
-      const img = card.querySelector<HTMLImageElement>(".camera-stream");
-      if (img) img.src = cameraStreamUrl(camId);
+      if (controller.signal.aborted) return;
 
-      const controller = streamCameraEvents(
-        camId,
+      // El video llega como MJPEG por <img>; los eventos, por SSE aparte.
+      card.setStreamUrl(mjpegStreamUrl(card.camId));
+      card.setState("live");
+
+      const events = streamCameraEvents(
+        card.camId,
         (payload) => {
-          updateCameraStatus(card);
-          if (payload.alerts?.length) {
-            showAlertToasts(payload.alerts.map((a) => ({ ...a, cameraId: title })));
-          }
+          card.setState("live");
+          recordCameraFrame(
+            card.camId,
+            payload.detections?.length ?? 0,
+            toastFor(payload.alerts, card.title),
+          );
         },
-        () => {
-          card.querySelector(".camera-status")!.textContent = "Finalizada";
-          setStatus(refs, `${title} finalizada`, false);
-        },
-        (err) => {
-          card.querySelector(".camera-status")!.textContent = "Error";
-          setStatus(refs, `Error en ${title}: ${err.message}`, false);
-        }
+        () => card.setState("done"),
+        (err) => card.setState("error", err.message),
       );
 
-      state.multiCamControllers.set(camId, controller);
+      // Cerrar la tarjeta debe cortar también el stream de eventos.
+      controller.signal.addEventListener("abort", () => events.abort(), { once: true });
     })();
   };
 
   const addFromFile = (file: File): void => {
-    if (!state.multiCamActive) stopStream();
-    const sourceLabel = file.type.startsWith("image/") ? "Imagen" : "Video";
-    const { camId, title, card } = setupCard(`${sourceLabel}: ${file.name}`);
-    setStatus(refs, `Procesando ${title}...`, true);
+    const kind = classifyFile(file);
+    if (kind === "unknown") {
+      setStatus(refs, `Formato no reconocido: ${file.name}`, false);
+      return;
+    }
 
-    if (file.type.startsWith("image/")) {
-      (async () => {
+    const card = mountCard(`${formatLabel(file)} · ${file.name}`, kind === "image" ? "image" : "film");
+    setStatus(refs, `Procesando ${card.title}…`, true);
+
+    if (kind === "image") {
+      const controller = new AbortController();
+      register(card, controller);
+
+      void (async () => {
         try {
           const result = await uploadAndPredict(file);
-          const detections = result.detections ?? [];
-          const frame = result.frame ?? result.image;
-          updateFrame(card, frame);
-          updateCameraStatus(card);
-          if (result.alerts?.length) {
-            showAlertToasts(result.alerts.map((a) => ({ ...a, cameraId: title })));
-          }
-          card.querySelector(".camera-status")!.textContent = "Completa";
-          setStatus(refs, `${title} completada`, false);
+          if (controller.signal.aborted) return;
+
+          card.setFrame(result.frame);
+          card.setState("done", "Completada");
+          toastFor(result.alerts, card.title);
+          setStatus(refs, `${card.title} completada`, false);
         } catch (err) {
           const message = err instanceof Error ? err.message : "No se pudo analizar la imagen";
-          card.querySelector(".camera-status")!.textContent = "Error";
-          setStatus(refs, `Error en ${title}: ${message}`, false);
+          card.setState("error", message);
+          setStatus(refs, `Error en ${card.title}: ${message}`, false);
         }
       })();
       return;
@@ -204,39 +249,49 @@ export const createMultiCamHandler = (
 
     const controller = streamVideoDetections(
       file,
-      (frame: VideoFramePayload) => {
-        const detections = Array.isArray(frame.detections) ? frame.detections : [];
-        updateFrame(card, frame.frame);
-        updateCameraStatus(card);
-        if (frame.alerts?.length) {
-          showAlertToasts(frame.alerts.map((a) => ({ ...a, cameraId: title })));
-        }
+      (frame) => {
+        card.setFrame(frame.frame);
+        card.setState("live");
+        recordCameraFrame(
+          card.camId,
+          Array.isArray(frame.detections) ? frame.detections.length : frame.detections,
+          toastFor(frame.alerts, card.title),
+        );
       },
       () => {
-        card.querySelector(".camera-status")!.textContent = "Finalizada";
-        setStatus(refs, `${title} finalizada`, false);
+        card.setState("done");
+        setStatus(refs, `${card.title} finalizada`, false);
       },
       (err) => {
-        card.querySelector(".camera-status")!.textContent = "Error";
-        setStatus(refs, `Error en ${title}: ${err.message}`, false);
-      }
+        card.setState("error", err.message);
+        setStatus(refs, `Error en ${card.title}: ${err.message}`, false);
+      },
     );
 
-    state.multiCamControllers.set(camId, controller);
+    register(card, controller);
   };
 
   const stopAll = (): void => {
-    state.multiCamControllers.forEach((controller) => controller.abort());
-    state.multiCamControllers.clear();
-    state.multiCamActive = false;
+    state.cameras.forEach((slot) => {
+      slot.controller.abort();
+      slot.card.destroy();
+    });
+    state.cameras.clear();
+    detectionsByCamera.clear();
     nextIndex = 1;
+    stats.reset();
+    resetResults(refs);
 
-    refs.multiCamGrid.innerHTML = "";
-    refs.multiCamList.innerHTML = "";
-    setMultiCamActive(refs, false);
-    resetPreview(refs);
-    setStatus(refs, "Panel multicamara detenido", false);
+    refs.multiCamGrid.replaceChildren();
+    refs.multiCamList.replaceChildren();
+    syncGridVisibility();
+
+    clearPreview(refs);
+    setStageHeader(refs, "Sin fuente activa", "Elige un archivo, una cámara o una URL para empezar.");
+    setStatus(refs, "Panel multicámara detenido", false);
   };
+
+  syncGridVisibility();
 
   return { addFromYoutube, addFromUrl, addFromFile, stopAll };
 };

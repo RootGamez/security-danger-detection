@@ -1,59 +1,60 @@
 /**
- * Image feature — handles still image file upload and detection.
+ * Análisis de una imagen suelta.
+ *
+ * A diferencia del resto de fuentes no hay stream: una petición, una
+ * respuesta con el fotograma ya anotado por el backend.
  */
 
+import { formatLabel, humanSize } from "../config/media";
 import { uploadAndPredict } from "../services/detection.api";
 import { DetectionAccumulator } from "../services/history.service";
-import type { AppState } from "../state/app.state";
-import type { UIRefs } from "../ui/refs";
-import { showPreview, resetPreview } from "../ui/components/preview";
-import { renderDetections } from "../ui/components/results";
-import { setStatus } from "../ui/components/status";
 import { showAlertToasts } from "../ui/components/alert-toast";
+import { paintFrame, showImagePreview, useFrameTarget } from "../ui/components/preview";
+import { renderDetections, renderResultsError } from "../ui/components/results";
+import { setStageHeader, setStatus, setStoppable } from "../ui/components/status";
+import { truncateMiddle } from "../ui/utils/format";
+import type { FeatureContext } from "./context";
 
 export type ImageHandler = (file: File) => Promise<void>;
 
-export const createImageHandler = (
-  refs: UIRefs,
-  state: AppState,
-  stopStream: () => void
-): ImageHandler =>
-  async (file: File): Promise<void> => {
-    state.webcamModeActive = false;
-    stopStream();
+export const createImageHandler = (ctx: FeatureContext): ImageHandler => {
+  const { refs, state, stats } = ctx;
 
-    // Don't show the raw image yet — wait for the annotated result from backend
-    resetPreview(refs);
-    setStatus(refs, "Analizando imagen...", true);
-    refs.resultsBox.innerHTML = "";
+  return async (file: File): Promise<void> => {
+    ctx.stopStream();
+
+    state.activeSource = "image";
+    stats.reset();
+    useFrameTarget(refs);
+    setStageHeader(
+      refs,
+      truncateMiddle(file.name, 46),
+      `${formatLabel(file)} · ${humanSize(file.size)}`,
+    );
+    setStatus(refs, "Analizando imagen…", true);
+    setStoppable(refs, false);
 
     try {
-      const { detections, alerts, frame, image } = await uploadAndPredict(file);
-      state.lastDetections = detections;
+      const { detections, alerts, frame } = await uploadAndPredict(file);
 
-      // 📊 History
-      const acc = new DetectionAccumulator("image", file.name);
-      acc.addFrame(detections, alerts);
-      acc.finalize();
+      const accumulator = new DetectionAccumulator("image", file.name);
+      accumulator.addFrame(detections, alerts);
+      accumulator.finalize();
 
-      // Show annotated image from backend (boxes already drawn)
-      // Fallback to raw file preview if backend didn't return a frame
-      const resultFrame = frame ?? image;
-      if (resultFrame) {
-        refs.previewImg.src = `data:image/jpeg;base64,${resultFrame}`;
-        refs.previewImg.classList.remove("hidden");
-        refs.previewContainer.querySelector("span")?.classList.add("hidden");
-      } else {
-        showPreview(refs, file);
-      }
+      // El backend devuelve el JPEG con las cajas dibujadas; si no llega,
+      // mostramos el archivo original para no dejar el escenario vacío.
+      if (frame) paintFrame(refs, frame);
+      else showImagePreview(refs, file);
 
       renderDetections(refs, detections);
-      showAlertToasts(alerts);
-      setStatus(refs, "Análisis completado", false);
+      stats.recordFrame(detections.length, showAlertToasts(alerts));
+      setStatus(refs, `Análisis completado · ${detections.length} detecciones`, false);
     } catch (err) {
-      console.error(err);
-      refs.resultsBox.innerHTML = '<p class="text-red-300">No se pudo procesar la imagen.</p>';
-      setStatus(refs, "Fallo al analizar", false);
+      const message = err instanceof Error ? err.message : "Error desconocido";
+      renderResultsError(refs, message);
+      setStatus(refs, `No se pudo analizar la imagen: ${message}`, false);
+    } finally {
+      state.activeSource = null;
     }
   };
-
+};

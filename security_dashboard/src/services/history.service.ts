@@ -1,8 +1,12 @@
 /**
- * Detection history service.
- * Stores a log of every analysis session (image, video, webcam, youtube).
- * Exposes a `DetectionAccumulator` for gradually building a session entry
- * across multiple SSE frames.
+ * Historial de análisis.
+ *
+ * Registra cada sesión (imagen, video, cámara, YouTube) y la persiste en
+ * localStorage para que sobreviva a un refresco — útil cuando se compara el
+ * mismo clip contra varios modelos entrenados en Colab.
+ *
+ * Expone además `DetectionAccumulator`, que va agregando las detecciones de
+ * múltiples fotogramas SSE hasta producir una única entrada de historial.
  */
 
 import type {
@@ -13,55 +17,104 @@ import type {
   SafetyAlert,
 } from "../types/domain";
 
-// ── In-memory store ────────────────────────────────────────────────────────
+const STORAGE_KEY = "securevision.history";
+const MAX_ENTRIES = 80;
 
-const _store: HistoryEntry[] = [];
+// ── Persistencia ───────────────────────────────────────────────────────────
 
-/** Listeners notified on every store mutation. */
-const _listeners = new Set<() => void>();
+/** Reconstruye `timestamp` como Date y descarta entradas corruptas. */
+const reviveEntries = (raw: string): HistoryEntry[] => {
+  const parsed: unknown = JSON.parse(raw);
+  if (!Array.isArray(parsed)) return [];
 
-export const onHistoryChange = (cb: () => void): (() => void) => {
-  _listeners.add(cb);
-  return () => _listeners.delete(cb);
+  return parsed.flatMap((item): HistoryEntry[] => {
+    const entry = item as Partial<HistoryEntry> & { timestamp?: string };
+    if (!entry.id || !entry.source || typeof entry.label !== "string") return [];
+
+    const timestamp = new Date(entry.timestamp ?? "");
+    return [
+      {
+        id: entry.id,
+        timestamp: Number.isNaN(timestamp.getTime()) ? new Date() : timestamp,
+        source: entry.source,
+        label: entry.label,
+        classCounts: entry.classCounts ?? [],
+        alerts: entry.alerts ?? [],
+        frameCount: entry.frameCount,
+      },
+    ];
+  });
 };
 
-const _notify = () => _listeners.forEach((cb) => cb());
+const loadFromStorage = (): HistoryEntry[] => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? reviveEntries(raw) : [];
+  } catch {
+    return [];
+  }
+};
+
+// ── Store en memoria ───────────────────────────────────────────────────────
+
+const _store: HistoryEntry[] = loadFromStorage();
+const _listeners = new Set<() => void>();
+
+const persist = (): void => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(_store));
+  } catch {
+    /* cuota llena o storage bloqueado: el historial vive sólo en memoria */
+  }
+};
+
+const commit = (): void => {
+  persist();
+  _listeners.forEach((listener) => listener());
+};
+
+export const onHistoryChange = (listener: () => void): (() => void) => {
+  _listeners.add(listener);
+  return () => _listeners.delete(listener);
+};
 
 export const getHistory = (): readonly HistoryEntry[] => _store;
 
 export const addHistoryEntry = (entry: HistoryEntry): void => {
-  _store.unshift(entry); // newest first
-  _notify();
+  _store.unshift(entry); // más reciente primero
+  if (_store.length > MAX_ENTRIES) _store.length = MAX_ENTRIES;
+  commit();
 };
 
 export const removeHistoryEntry = (id: string): void => {
-  const idx = _store.findIndex((e) => e.id === id);
-  if (idx !== -1) { _store.splice(idx, 1); _notify(); }
+  const index = _store.findIndex((entry) => entry.id === id);
+  if (index === -1) return;
+  _store.splice(index, 1);
+  commit();
 };
 
 export const clearHistory = (): void => {
+  if (_store.length === 0) return;
   _store.length = 0;
-  _notify();
+  commit();
 };
 
 // ── DetectionAccumulator ───────────────────────────────────────────────────
 
 /**
- * Accumulates detections across multiple frames (for streaming sessions)
- * and produces a single `HistoryEntry` when finalised.
+ * Agrega detecciones de varios fotogramas y produce una única `HistoryEntry`
+ * al finalizar.
  *
- * Usage:
  *   const acc = new DetectionAccumulator("webcam", "Cámara en vivo");
- *   // on each frame:
- *   acc.addFrame(detections, alerts);
- *   // when done or stopped:
- *   acc.finalize();   // writes to history store
+ *   acc.addFrame(detections, alerts);  // por cada fotograma
+ *   acc.finalize();                    // al terminar o al cancelar
  */
 export class DetectionAccumulator {
-  private classMap = new Map<string, { count: number; maxConf: number }>();
-  private alertSet = new Map<string, SafetyAlert>(); // dedup key → alert
-  public frameCount = 0;
+  private readonly classMap = new Map<string, { count: number; maxConfidence: number }>();
+  private readonly alertMap = new Map<string, SafetyAlert>();
   private finalised = false;
+
+  public frameCount = 0;
 
   constructor(
     public readonly source: HistorySource,
@@ -70,34 +123,34 @@ export class DetectionAccumulator {
 
   addFrame(detections: DetectionPayload[], alerts?: SafetyAlert[]): void {
     this.frameCount++;
-    for (const d of detections) {
-      const key = d.class.toLowerCase();
-      const prev = this.classMap.get(key);
-      if (prev) {
-        prev.count++;
-        prev.maxConf = Math.max(prev.maxConf, d.confidence);
+
+    for (const detection of detections) {
+      const key = detection.class.toLowerCase();
+      const previous = this.classMap.get(key);
+      if (previous) {
+        previous.count++;
+        previous.maxConfidence = Math.max(previous.maxConfidence, detection.confidence);
       } else {
-        this.classMap.set(key, { count: 1, maxConf: d.confidence });
+        this.classMap.set(key, { count: 1, maxConfidence: detection.confidence });
       }
     }
-    if (alerts) {
-      for (const a of alerts) {
-        this.alertSet.set(`${a.type}|${a.class}`, a);
-      }
+
+    for (const alert of alerts ?? []) {
+      this.alertMap.set(`${alert.type}|${alert.class}`, alert);
     }
   }
 
-  /** Commits the accumulated data to the history store. Safe to call multiple times. */
+  /** Vuelca lo acumulado al historial. Idempotente. */
   finalize(): HistoryEntry | null {
     if (this.finalised) return null;
-    if (this.classMap.size === 0 && this.alertSet.size === 0) return null;
+    if (this.classMap.size === 0 && this.alertMap.size === 0) return null;
     this.finalised = true;
 
     const classCounts: ClassCount[] = [...this.classMap.entries()].map(
-      ([cls, { count, maxConf }]) => ({
-        class: cls,
+      ([className, { count, maxConfidence }]) => ({
+        class: className,
         count,
-        maxConfidence: Math.round(maxConf * 1000) / 1000,
+        maxConfidence: Math.round(maxConfidence * 1000) / 1000,
       }),
     );
 
@@ -107,8 +160,8 @@ export class DetectionAccumulator {
       source: this.source,
       label: this.label,
       classCounts,
-      alerts: [...this.alertSet.values()],
-      frameCount: this.source !== "image" ? this.frameCount : undefined,
+      alerts: [...this.alertMap.values()],
+      frameCount: this.source === "image" ? undefined : this.frameCount,
     };
 
     addHistoryEntry(entry);

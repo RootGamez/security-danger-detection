@@ -1,0 +1,446 @@
+/* ════════════════════════════════════════════════════════════════════════
+   Capas flotantes: modales, cajón de historial y toasts
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ── Modal genérico ─────────────────────────────────────────────────────── */
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: grid;
+  place-items: center;
+  padding: var(--sp-4);
+}
+
+/* Scrim al 55 %: suficiente para aislar el diálogo sin apagar el fondo. */
+.modal-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgb(3 5 10 / 62%);
+  backdrop-filter: blur(3px);
+  animation: fade-in var(--dur) var(--ease-out);
+}
+
+.modal-card {
+  position: relative;
+  width: min(520px, 100%);
+  max-height: min(86dvh, 720px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-lg);
+  animation: modal-in var(--dur-slow) var(--ease-out);
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-5) var(--sp-5) var(--sp-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-title {
+  font-size: var(--fs-lg);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.modal-subtitle {
+  font-size: var(--fs-sm);
+  color: var(--text-subtle);
+  margin-top: 2px;
+}
+
+.modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-5);
+  overflow-y: auto;
+}
+
+.modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.modal-footnote {
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--text-subtle);
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--border);
+}
+
+/* ── Tabla de información del backend ───────────────────────────────────── */
+
+.info-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin: 0;
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-sunken);
+}
+
+.info-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  font-size: var(--fs-sm);
+}
+
+.info-row dt {
+  color: var(--text-subtle);
+  white-space: nowrap;
+}
+
+.info-row dd {
+  margin: 0;
+  color: var(--text);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+/* ── Opciones del modal multicámara ─────────────────────────────────────── */
+
+.source-option {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-sunken);
+}
+
+.source-option-title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+/* ── Cajón lateral (historial) ──────────────────────────────────────────── */
+
+.drawer-modal {
+  place-items: stretch;
+  padding: 0;
+}
+
+.drawer {
+  position: relative;
+  margin-left: auto;
+  width: min(420px, 100%);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-left: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-lg);
+  animation: drawer-in var(--dur-slow) var(--ease-out);
+}
+
+.drawer-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-5) var(--sp-4) var(--sp-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.drawer-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.drawer-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  overflow-y: auto;
+}
+
+/* ── Tarjeta del historial ──────────────────────────────────────────────── */
+
+.hist-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-raised);
+  animation: card-in var(--dur) var(--ease-out);
+}
+
+.hist-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.hist-source {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: var(--r-sm);
+  background: var(--surface-sunken);
+  color: var(--text-subtle);
+}
+
+.hist-card-meta {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.hist-card-title {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.hist-card-sub {
+  font-size: var(--fs-xs);
+  color: var(--text-subtle);
+}
+
+.hist-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+}
+
+.hist-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px var(--sp-2);
+  border: 1px solid color-mix(in srgb, var(--pill-color) 32%, transparent);
+  border-radius: var(--r-full);
+  background: color-mix(in srgb, var(--pill-color) 10%, transparent);
+  font-size: var(--fs-xs);
+  color: var(--pill-color);
+}
+
+.hist-pill-count,
+.hist-pill-conf {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+
+.hist-empty-note {
+  font-size: var(--fs-xs);
+  color: var(--text-subtle);
+}
+
+.hist-alerts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--border);
+}
+
+.hist-alert-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px var(--sp-2);
+  border-radius: var(--r-full);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: var(--fs-xs);
+  font-weight: 650;
+}
+
+/* ── Toasts ─────────────────────────────────────────────────────────────── */
+
+/* Anclados abajo a la derecha y creciendo hacia arriba: el carril de
+   detecciones ocupa la mitad superior derecha y no debe quedar tapado. */
+.toast-stack {
+  position: fixed;
+  bottom: var(--sp-4);
+  right: var(--sp-4);
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column-reverse;
+  gap: var(--sp-2);
+  width: min(320px, calc(100vw - var(--sp-8)));
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--toast-color);
+  border-left-width: 3px;
+  border-radius: var(--r-md);
+  background: rgb(13 18 28 / 96%);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--shadow-md);
+  pointer-events: auto;
+  opacity: 0;
+  transform: translateX(12px);
+  transition:
+    opacity var(--dur) var(--ease-out),
+    transform var(--dur) var(--ease-out);
+}
+
+.toast-visible {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* La salida es más corta que la entrada, para que responda al instante. */
+.toast-leaving {
+  opacity: 0;
+  transform: translateX(12px);
+  transition-duration: var(--dur-fast);
+}
+
+.toast-danger {
+  --toast-color: var(--danger);
+  --toast-soft: var(--danger-soft);
+}
+
+.toast-warning {
+  --toast-color: var(--warning);
+  --toast-soft: var(--warning-soft);
+}
+
+.toast-info {
+  --toast-color: var(--info);
+  --toast-soft: var(--info-soft);
+}
+
+.toast-neutral {
+  --toast-color: var(--neutral);
+  --toast-soft: var(--neutral-soft);
+}
+
+.toast-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: var(--r-sm);
+  background: var(--toast-soft);
+  color: var(--toast-color);
+}
+
+.toast-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.toast-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
+.toast-title {
+  font-size: var(--fs-base);
+  font-weight: 650;
+  color: var(--toast-color);
+  overflow-wrap: anywhere;
+}
+
+.toast-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+}
+
+.toast-progress {
+  display: block;
+  height: 2px;
+  border-radius: var(--r-full);
+  background: var(--toast-color);
+  transform-origin: left;
+  animation: toast-countdown var(--toast-duration) linear forwards;
+}
+
+@keyframes toast-countdown {
+  from {
+    transform: scaleX(1);
+  }
+
+  to {
+    transform: scaleX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast-progress {
+    animation: none;
+  }
+}
+
+@media (width <= 640px) {
+  .toast-stack {
+    left: var(--sp-3);
+    right: var(--sp-3);
+    bottom: var(--sp-3);
+    width: auto;
+  }
+}
+
+/* ── Animaciones compartidas ────────────────────────────────────────────── */
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+}
+
+@keyframes drawer-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-card,
+  .modal-scrim,
+  .drawer,
+  .hist-card {
+    animation: none;
+  }
+}

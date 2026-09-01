@@ -1,133 +1,133 @@
 /**
- * AlertToast — sistema moderno de alertas de seguridad.
- * Muestra toasts apilados y auto-descartables cuando el backend detecta
- * objetos peligrosos (knife, backpack, suitcase, cell phone, dog).
+ * Toasts de alerta de seguridad.
+ *
+ * Se apilan abajo a la derecha, se auto-descartan y se deduplican por
+ * clase + zona de la imagen: un cuchillo quieto en escena dispara una alerta
+ * por fotograma en el backend, y sin deduplicar inundaría la pantalla.
+ *
+ * Accesibilidad: el contenedor es `aria-live="assertive"` pero nunca roba el
+ * foco, según la pauta `toast-accessibility`.
  */
 
 import type { SafetyAlert } from "../../types/domain";
+import { severityForClass } from "../utils/colors";
+import { asPercent, capitalize, escapeHtml } from "../utils/format";
+import { icon, iconForClass } from "../utils/icons";
 
-// ── Configuration ─────────────────────────────────────────────────────────
-const TOAST_DURATION_MS  = 6_000;   // how long each toast stays visible
-const TOAST_FADEOUT_MS   = 500;     // CSS transition duration before removal
-const MAX_VISIBLE_TOASTS = 5;
+const TOAST_DURATION_MS = 6_000;
+const TOAST_FADEOUT_MS = 320;
+const MAX_VISIBLE_TOASTS = 3;
+const DEDUPE_WINDOW_MS = 4_000;
 
-// ── Toast container ────────────────────────────────────────────────────────
+/** Confianza mínima para molestar al usuario con un toast. */
+const MIN_CONFIDENCE = 0.6;
 
-function getOrCreateContainer(): HTMLElement {
-  let container = document.getElementById("alert-toast-container");
-  if (!container) {
-    container = document.createElement("div");
-    container.id = "alert-toast-container";
-    document.body.appendChild(container);
-  }
+// ── Contenedor ─────────────────────────────────────────────────────────────
+
+let _container: HTMLElement | null = null;
+
+const getContainer = (): HTMLElement => {
+  if (_container?.isConnected) return _container;
+
+  const container = document.createElement("div");
+  container.className = "toast-stack";
+  container.setAttribute("aria-live", "assertive");
+  container.setAttribute("aria-atomic", "false");
+  document.body.appendChild(container);
+
+  _container = container;
   return container;
-}
-
-// ── Emoji e color por clase COCO ───────────────────────────────────────────
-
-const CLASS_META: Record<string, { emoji: string; colorClass: string }> = {
-  knife:    { emoji: "🔪", colorClass: "toast-danger" },
-  backpack: { emoji: "🎒", colorClass: "toast-warning" },
-  dog:      { emoji: "🐕", colorClass: "toast-warning" },
 };
 
-function getClassMeta(cls: string) {
-  return CLASS_META[cls.toLowerCase()] ?? { emoji: "⚠️", colorClass: "toast-warning" };
-}
+// ── Construcción ───────────────────────────────────────────────────────────
 
-// ── Core toast builder ─────────────────────────────────────────────────────
+const dismissToast = (toast: HTMLElement): void => {
+  if (toast.dataset.leaving === "true") return;
+  toast.dataset.leaving = "true";
+  toast.classList.add("toast-leaving");
+  setTimeout(() => toast.remove(), TOAST_FADEOUT_MS);
+};
 
-function buildToastElement(alert: SafetyAlert, id: string): HTMLElement {
-  const { emoji, colorClass } = getClassMeta(alert.class);
-  const pct = Math.round(alert.confidence * 100);
-  const classLabel = alert.class.charAt(0).toUpperCase() + alert.class.slice(1);
-  const cameraLabel = alert.cameraId ? `Camara ${alert.cameraId}` : "";
-
+const buildToast = (alert: SafetyAlert): HTMLElement => {
+  const severity = severityForClass(alert.class);
   const toast = document.createElement("div");
-  toast.id = id;
-  toast.className = `alert-toast ${colorClass}`;
+  toast.className = `toast toast-${severity}`;
+  toast.setAttribute("role", "alert");
+
   toast.innerHTML = `
-    <div class="toast-icon-wrap">
-      <span class="toast-emoji">${emoji}</span>
-      <span class="toast-pulse-ring"></span>
-    </div>
+    <span class="toast-icon" aria-hidden="true">${icon(iconForClass(alert.class), { size: 18 })}</span>
     <div class="toast-body">
-      <div class="toast-header-row">
-        <span class="toast-title">⚠ Alerta de Seguridad</span>
-        <button class="toast-close" aria-label="Cerrar alerta">✕</button>
+      <div class="toast-head">
+        <p class="toast-title">${escapeHtml(alert.type)}</p>
+        <button class="icon-btn icon-btn-sm toast-close" type="button" aria-label="Descartar alerta">
+          ${icon("close", { size: 13 })}
+        </button>
       </div>
-      <p class="toast-message">${alert.type}</p>
-      <div class="toast-meta-row">
-        <span class="toast-badge toast-badge-vehicle">${classLabel}</span>
-        <span class="toast-badge toast-badge-conf">${pct}% confianza</span>
-        ${cameraLabel ? `<span class="toast-badge toast-badge-camera">${cameraLabel}</span>` : ""}
+      <div class="toast-tags">
+        <span class="tag">${escapeHtml(capitalize(alert.class))}</span>
+        <span class="tag tag-mono">${asPercent(alert.confidence)}</span>
+        ${alert.cameraId ? `<span class="tag">${escapeHtml(alert.cameraId)}</span>` : ""}
       </div>
-      <div class="toast-progress-bar">
-        <div class="toast-progress-fill" style="animation-duration:${TOAST_DURATION_MS}ms"></div>
-      </div>
-    </div>
-  `;
+      <span class="toast-progress" style="--toast-duration:${TOAST_DURATION_MS}ms" aria-hidden="true"></span>
+    </div>`;
 
   toast.querySelector(".toast-close")?.addEventListener("click", () => dismissToast(toast));
   return toast;
-}
+};
 
-// ── Dismiss ────────────────────────────────────────────────────────────────
+// ── Deduplicación ──────────────────────────────────────────────────────────
 
-function dismissToast(toast: HTMLElement): void {
-  toast.classList.add("toast-leaving");
-  setTimeout(() => toast.remove(), TOAST_FADEOUT_MS);
-}
+const _recentKeys = new Map<string, number>();
 
-// ── Deduplication ─────────────────────────────────────────────────────────
+/** Agrupa por cámara, clase y celda de 50 px para tolerar micro-movimientos. */
+const dedupeKey = (alert: SafetyAlert): string => {
+  const cell = alert.bbox.map((value) => Math.round(value / 50)).join(",");
+  return `${alert.cameraId ?? "global"}|${alert.class}|${cell}`;
+};
 
-const _recentKeys = new Set<string>();
+const isDuplicate = (alert: SafetyAlert): boolean => {
+  const key = dedupeKey(alert);
+  const now = Date.now();
 
-function makeDedupeKey(alert: SafetyAlert): string {
-  const roundedBbox = alert.bbox.map((v) => Math.round(v / 50)).join(",");
-  return `${alert.cameraId ?? "global"}|${alert.class}|${roundedBbox}`;
-}
-
-// ── Public API ─────────────────────────────────────────────────────────────
-
-/**
- * Show a toast for a safety alert.
- * Automatically deduplicates alerts within a 2-second window.
- */
-export function showAlertToast(alert: SafetyAlert): void {
-  const key = makeDedupeKey(alert);
-  if (_recentKeys.has(key)) return;
-
-  _recentKeys.add(key);
-  setTimeout(() => _recentKeys.delete(key), 2_000);
-
-  const container = getOrCreateContainer();
-
-  // Limit visible toasts
-  const existing = container.querySelectorAll(".alert-toast:not(.toast-leaving)");
-  if (existing.length >= MAX_VISIBLE_TOASTS) return;
-
-  const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-  const toast = buildToastElement(alert, id);
-
-  container.prepend(toast);
-  // Trigger entrance animation on next frame
-  requestAnimationFrame(() => toast.classList.add("toast-visible"));
-
-  // Auto-dismiss
-  setTimeout(() => dismissToast(toast), TOAST_DURATION_MS);
-}
-
-/** Confianza mínima (0–1) para mostrar una alerta. Igual al umbral del backend. */
-const MIN_CONFIDENCE = 0.60;
-
-/**
- * Show toasts for all alerts in a batch, de-duplicating across the batch.
- * Only alerts with confidence > MIN_CONFIDENCE are displayed.
- */
-export function showAlertToasts(alerts: SafetyAlert[] | undefined): void {
-  if (!alerts || alerts.length === 0) return;
-  for (const alert of alerts) {
-    if (alert.confidence > MIN_CONFIDENCE) showAlertToast(alert);
+  for (const [existingKey, expiry] of _recentKeys) {
+    if (expiry <= now) _recentKeys.delete(existingKey);
   }
-}
+
+  if (_recentKeys.has(key)) return true;
+  _recentKeys.set(key, now + DEDUPE_WINDOW_MS);
+  return false;
+};
+
+// ── API pública ────────────────────────────────────────────────────────────
+
+/** Muestra un toast si la alerta no es un duplicado reciente. */
+export const showAlertToast = (alert: SafetyAlert): boolean => {
+  if (isDuplicate(alert)) return false;
+
+  const container = getContainer();
+  const visible = container.querySelectorAll(".toast:not(.toast-leaving)");
+  if (visible.length >= MAX_VISIBLE_TOASTS) {
+    dismissToast(visible[0] as HTMLElement); // hace sitio descartando el más antiguo
+  }
+
+  const toast = buildToast(alert);
+  container.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add("toast-visible"));
+  setTimeout(() => dismissToast(toast), TOAST_DURATION_MS);
+
+  return true;
+};
+
+/**
+ * Procesa el lote de alertas de un fotograma.
+ * @returns cuántos toasts nuevos se mostraron (para el contador de alertas).
+ */
+export const showAlertToasts = (alerts: SafetyAlert[] | undefined): number => {
+  if (!alerts?.length) return 0;
+
+  let shown = 0;
+  for (const alert of alerts) {
+    if (alert.confidence >= MIN_CONFIDENCE && showAlertToast(alert)) shown++;
+  }
+  return shown;
+};

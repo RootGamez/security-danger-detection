@@ -1,39 +1,34 @@
-import type { DetectionPayload, VideoFramePayload } from "../types/domain";
 import type { DetectionAccumulator } from "../services/history.service";
+import type { CameraCardController } from "../ui/components/camera-card";
 
-// ── App state interface ────────────────────────────────────────────────────
+/** Fuente única en curso. `null` cuando no hay análisis activo. */
+export type ActiveSource = "image" | "video" | "youtube" | "webcam" | "camera";
+
+export type CameraSlot = {
+  controller: AbortController;
+  card: CameraCardController;
+};
 
 export interface AppState {
-  /** True while a webcam stream is active. */
-  webcamModeActive: boolean;
-  /** Sorted list of received video frames used for timeline scrubbing. */
-  frameTimeline: VideoFramePayload[];
-  /** AbortController for the currently active SSE stream (video/webcam/youtube). */
-  videoStreamAbort: AbortController | null;
-  /** requestAnimationFrame ID for video overlay sync loop. */
-  rafId: number | null;
-  /** Last image detections — kept to redraw boxes after layout changes. */
-  lastDetections: DetectionPayload[];
-  /** Cached 2D canvas context for webcam rendering. */
-  canvasCtx: CanvasRenderingContext2D | null;
-  /** Active stream accumulator — finalised by stopStream() if user interrupts. */
+  /** Fuente que está ocupando el escenario ahora mismo. */
+  activeSource: ActiveSource | null;
+  /** True mientras hay un stream en vivo (cámara o URL) que se puede detener. */
+  liveMode: boolean;
+  /** Stream SSE activo de la fuente única. */
+  streamAbort: AbortController | null;
+  /** Acumulador en curso; `stopStream()` lo cierra si el usuario interrumpe. */
   pendingAccumulator: DetectionAccumulator | null;
-  /** True while multicamera dashboard is active. */
+  /** True mientras la rejilla multicámara está en pantalla. */
   multiCamActive: boolean;
-  /** Per-camera SSE controllers for multicamera alerts. */
-  multiCamControllers: Map<string, AbortController>;
+  /** Cámaras activas de la rejilla, indexadas por id. */
+  cameras: Map<string, CameraSlot>;
 }
 
-// ── Factory ────────────────────────────────────────────────────────────────
-
 export const createAppState = (): AppState => ({
-  webcamModeActive: false,
-  frameTimeline: [],
-  videoStreamAbort: null,
-  rafId: null,
-  lastDetections: [],
-  canvasCtx: null,
+  activeSource: null,
+  liveMode: false,
+  streamAbort: null,
   pendingAccumulator: null,
   multiCamActive: false,
-  multiCamControllers: new Map(),
+  cameras: new Map(),
 });

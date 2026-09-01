@@ -1,89 +1,95 @@
-import type { DetectionPayload } from "../../types/domain";
-import type { UIRefs } from "../refs";
-import { colorForClass } from "../utils/colors";
+/**
+ * Capa de cajas delimitadoras sobre la vista previa.
+ *
+ * Las tres variantes anteriores (imagen, video, canvas) eran el mismo cálculo
+ * repetido; aquí queda una sola función que recibe el elemento y su tamaño
+ * intrínseco, y tres envoltorios finos que lo resuelven por tipo de medio.
+ *
+ * Nota: cuando el backend ya devuelve el fotograma anotado (`frame` en base64)
+ * esta capa no se usa — sólo hace falta para dibujar sobre medios locales.
+ */
 
-const buildBox = (
-  d: DetectionPayload,
-  scaleX: number,
-  scaleY: number,
-  offsetX: number,
-  offsetY: number
-): HTMLDivElement => {
-  const [x1, y1, x2, y2] = d.bbox;
-  const width = Math.max(x2 - x1, 1);
-  const height = Math.max(y2 - y1, 1);
-  const color = colorForClass(d.class);
+import type { DetectionPayload } from "../../types/domain";
+import { colorForClass } from "../utils/colors";
+import { asPercent, capitalize } from "../utils/format";
+import type { UIRefs } from "../refs";
+
+type Geometry = {
+  /** Escala entre las coordenadas del modelo y las del elemento pintado. */
+  scaleX: number;
+  scaleY: number;
+  /** Desplazamiento del medio dentro del contenedor (letterboxing). */
+  offsetX: number;
+  offsetY: number;
+};
+
+const geometryFor = (
+  container: HTMLElement,
+  media: HTMLElement,
+  intrinsicWidth: number,
+  intrinsicHeight: number,
+): Geometry | null => {
+  if (intrinsicWidth <= 0 || intrinsicHeight <= 0) return null;
+
+  const containerRect = container.getBoundingClientRect();
+  const mediaRect = media.getBoundingClientRect();
+  if (mediaRect.width === 0 || mediaRect.height === 0) return null;
+
+  return {
+    scaleX: mediaRect.width / intrinsicWidth,
+    scaleY: mediaRect.height / intrinsicHeight,
+    offsetX: mediaRect.left - containerRect.left,
+    offsetY: mediaRect.top - containerRect.top,
+  };
+};
+
+const buildBox = (detection: DetectionPayload, geometry: Geometry): HTMLDivElement => {
+  const [x1, y1, x2, y2] = detection.bbox;
+  const color = colorForClass(detection.class);
 
   const box = document.createElement("div");
-  box.className = "overlay-marker";
-  box.style.left = `${offsetX + x1 * scaleX}px`;
-  box.style.top = `${offsetY + y1 * scaleY}px`;
-  box.style.width = `${width * scaleX}px`;
-  box.style.height = `${height * scaleY}px`;
-  box.style.borderColor = color;
-  box.style.boxShadow = `0 0 20px ${color}55`;
+  box.className = "overlay-box";
+  box.style.setProperty("--box-color", color);
+  box.style.left = `${geometry.offsetX + x1 * geometry.scaleX}px`;
+  box.style.top = `${geometry.offsetY + y1 * geometry.scaleY}px`;
+  box.style.width = `${Math.max(x2 - x1, 1) * geometry.scaleX}px`;
+  box.style.height = `${Math.max(y2 - y1, 1) * geometry.scaleY}px`;
 
   const label = document.createElement("span");
-  label.textContent = `${d.class} ${(d.confidence * 100).toFixed(0)}%`;
-  label.style.backgroundColor = "rgba(15, 23, 42, 0.85)";
-  label.style.color = "#fff";
-  label.style.borderColor = color;
-  label.style.borderStyle = "solid";
-  label.style.borderWidth = "1px";
-
+  label.className = "overlay-label";
+  label.textContent = `${capitalize(detection.class)} ${asPercent(detection.confidence)}`;
   box.appendChild(label);
+
   return box;
 };
 
-export const drawOverlayBoxes = (refs: UIRefs, detections: DetectionPayload[]) => {
+const paint = (
+  refs: UIRefs,
+  media: HTMLElement,
+  intrinsicWidth: number,
+  intrinsicHeight: number,
+  detections: DetectionPayload[],
+): void => {
   refs.overlayLayer.innerHTML = "";
-  if (!refs.previewImg.naturalWidth || !refs.previewImg.naturalHeight || detections.length === 0) {
-    return;
-  }
+  if (detections.length === 0) return;
 
-  const scaleX = refs.previewImg.clientWidth / refs.previewImg.naturalWidth;
-  const scaleY = refs.previewImg.clientHeight / refs.previewImg.naturalHeight;
+  const geometry = geometryFor(refs.previewContainer, media, intrinsicWidth, intrinsicHeight);
+  if (!geometry) return;
 
-  const containerRect = refs.previewContainer.getBoundingClientRect();
-  const imgRect = refs.previewImg.getBoundingClientRect();
-  const offsetX = imgRect.left - containerRect.left;
-  const offsetY = imgRect.top - containerRect.top;
-
-  detections.forEach((d) => {
-    refs.overlayLayer.appendChild(buildBox(d, scaleX, scaleY, offsetX, offsetY));
-  });
+  const fragment = document.createDocumentFragment();
+  detections.forEach((detection) => fragment.appendChild(buildBox(detection, geometry)));
+  refs.overlayLayer.appendChild(fragment);
 };
 
-export const drawOverlayBoxesOnVideo = (refs: UIRefs, detections: DetectionPayload[]) => {
+export const drawOverlayOnImage = (refs: UIRefs, detections: DetectionPayload[]): void =>
+  paint(refs, refs.previewImg, refs.previewImg.naturalWidth, refs.previewImg.naturalHeight, detections);
+
+export const drawOverlayOnVideo = (refs: UIRefs, detections: DetectionPayload[]): void =>
+  paint(refs, refs.previewVideo, refs.previewVideo.videoWidth, refs.previewVideo.videoHeight, detections);
+
+export const drawOverlayOnCanvas = (refs: UIRefs, detections: DetectionPayload[]): void =>
+  paint(refs, refs.webcamCanvas, refs.webcamCanvas.width, refs.webcamCanvas.height, detections);
+
+export const clearOverlay = (refs: UIRefs): void => {
   refs.overlayLayer.innerHTML = "";
-  if (!refs.previewVideo.videoWidth || !refs.previewVideo.videoHeight) return;
-
-  const scaleX = refs.previewVideo.clientWidth / refs.previewVideo.videoWidth;
-  const scaleY = refs.previewVideo.clientHeight / refs.previewVideo.videoHeight;
-
-  const containerRect = refs.previewContainer.getBoundingClientRect();
-  const vidRect = refs.previewVideo.getBoundingClientRect();
-  const offsetX = vidRect.left - containerRect.left;
-  const offsetY = vidRect.top - containerRect.top;
-
-  detections.forEach((d) => {
-    refs.overlayLayer.appendChild(buildBox(d, scaleX, scaleY, offsetX, offsetY));
-  });
-};
-
-export const drawOverlayBoxesOnCanvas = (refs: UIRefs, detections: DetectionPayload[]) => {
-  refs.overlayLayer.innerHTML = "";
-  if (!refs.webcamCanvas.width || !refs.webcamCanvas.height || detections.length === 0) return;
-
-  const containerRect = refs.previewContainer.getBoundingClientRect();
-  const canvasRect = refs.webcamCanvas.getBoundingClientRect();
-  const offsetX = canvasRect.left - containerRect.left;
-  const offsetY = canvasRect.top - containerRect.top;
-
-  const scaleX = canvasRect.width / refs.webcamCanvas.width;
-  const scaleY = canvasRect.height / refs.webcamCanvas.height;
-
-  detections.forEach((d) => {
-    refs.overlayLayer.appendChild(buildBox(d, scaleX, scaleY, offsetX, offsetY));
-  });
 };

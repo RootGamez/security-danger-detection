@@ -1,0 +1,502 @@
+/* ════════════════════════════════════════════════════════════════════════
+   Controles: botones, campos, pestañas, deslizador y zona de arrastre
+   Todos los elementos interactivos llegan a 44 px de alto o de área táctil.
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ── Botones ────────────────────────────────────────────────────────────── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  min-height: 38px;
+  padding: 0 var(--sp-3);
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  background: transparent;
+  font-size: var(--fs-base);
+  font-weight: 550;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn:disabled:active {
+  transform: none;
+}
+
+.btn-block {
+  width: 100%;
+  min-height: var(--tap);
+}
+
+.btn-sm {
+  min-height: 30px;
+  padding: 0 var(--sp-2);
+  font-size: var(--fs-sm);
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 650;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-strong);
+}
+
+.btn-accent {
+  background: var(--info-soft);
+  border-color: rgb(96 165 250 / 30%);
+  color: var(--info);
+}
+
+.btn-accent:hover:not(:disabled) {
+  background: rgb(96 165 250 / 20%);
+}
+
+.btn-accent.is-active {
+  background: var(--danger-soft);
+  border-color: rgb(251 113 133 / 35%);
+  color: var(--danger);
+}
+
+.btn-outline {
+  border-color: var(--border-strong);
+  background: var(--surface-raised);
+  color: var(--text);
+}
+
+.btn-outline:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--accent);
+}
+
+.btn-ghost {
+  color: var(--text-muted);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.btn-danger-ghost {
+  border-color: rgb(251 113 133 / 28%);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.btn-danger-ghost:hover:not(:disabled) {
+  background: rgb(251 113 133 / 20%);
+}
+
+/* Botón de sólo icono. */
+.icon-btn {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--text-subtle);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+/* Amplía el área pulsable hasta ~44 px sin alterar el tamaño visible
+   (equivalente al hitSlop nativo). */
+.icon-btn::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+}
+
+.icon-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.icon-btn-sm {
+  width: 28px;
+  height: 28px;
+}
+
+.icon-btn-sm::after {
+  inset: -8px;
+}
+
+/* ── Campos ─────────────────────────────────────────────────────────────── */
+
+.field-label {
+  font-size: var(--fs-sm);
+  font-weight: 550;
+  color: var(--text-muted);
+}
+
+.field-input {
+  width: 100%;
+  min-height: var(--tap);
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--surface-sunken);
+  color: var(--text);
+  font-size: var(--fs-base);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.field-input::placeholder {
+  color: var(--text-subtle);
+}
+
+.field-input:hover {
+  border-color: var(--border-strong);
+}
+
+.field-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.field-input-mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+}
+
+.field-note {
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--text-subtle);
+  overflow-wrap: anywhere;
+}
+
+.field-note[data-tone="ok"] {
+  color: var(--success);
+}
+
+.field-note[data-tone="error"] {
+  color: var(--danger);
+}
+
+.input-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.input-row .field-input {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.file-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-subtle);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Pestañas de fuente ─────────────────────────────────────────────────── */
+
+.source-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-sunken);
+}
+
+.source-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-height: 46px;
+  padding: var(--sp-2) 2px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-subtle);
+  font-size: var(--fs-xs);
+  font-weight: 550;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.source-tab:hover {
+  color: var(--text-muted);
+  background: var(--surface-hover);
+}
+
+.source-tab[aria-selected="true"] {
+  background: var(--surface-raised);
+  color: var(--accent);
+  box-shadow: var(--shadow-sm);
+}
+
+.source-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+/* ── Zona de arrastre ───────────────────────────────────────────────────── */
+
+.drop-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-1);
+  padding: var(--sp-5) var(--sp-3);
+  border: 1.5px dashed var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--surface-sunken);
+  text-align: center;
+  cursor: pointer;
+  transition:
+    border-color var(--dur) var(--ease-out),
+    background var(--dur) var(--ease-out);
+}
+
+.drop-area:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.drop-area.is-dragging {
+  border-color: var(--accent);
+  border-style: solid;
+  background: var(--accent-soft);
+}
+
+.drop-icon {
+  color: var(--accent);
+}
+
+.drop-label {
+  font-size: var(--fs-base);
+  font-weight: 600;
+}
+
+.drop-hint {
+  font-size: var(--fs-xs);
+  color: var(--text-subtle);
+}
+
+/* ── Indicador de backend ───────────────────────────────────────────────── */
+
+.backend-pill {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 38px;
+  max-width: 260px;
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--surface-raised);
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
+}
+
+.backend-pill:hover {
+  background: var(--surface-hover);
+  border-color: var(--accent);
+}
+
+.backend-pill-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.backend-url {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text);
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backend-meta {
+  font-size: 10px;
+  color: var(--text-subtle);
+  white-space: nowrap;
+}
+
+.backend-pill-icon {
+  color: var(--text-subtle);
+}
+
+/* Punto de estado: el color va acompañado del texto de `.backend-meta`,
+   nunca es el único indicador (pauta `color-not-only`). */
+.conn-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--r-full);
+  background: var(--neutral);
+}
+
+.conn-dot[data-status="online"] {
+  background: var(--success);
+  box-shadow: 0 0 0 3px var(--success-soft);
+}
+
+.conn-dot[data-status="offline"] {
+  background: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-soft);
+}
+
+.conn-dot[data-status="checking"] {
+  background: var(--warning);
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conn-dot[data-status="checking"] {
+    animation: none;
+  }
+}
+
+.backend-pill[data-status="offline"] {
+  border-color: rgb(251 113 133 / 40%);
+}
+
+/* ── Deslizador de confianza ────────────────────────────────────────────── */
+
+.conf-control {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  height: 38px;
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-raised);
+}
+
+.conf-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-xs);
+  font-weight: 550;
+  color: var(--text-subtle);
+  white-space: nowrap;
+}
+
+.conf-value {
+  min-width: 34px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  text-align: right;
+}
+
+.conf-slider {
+  --range-progress: 33%;
+
+  width: 96px;
+  height: 30px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  appearance: none;
+}
+
+.conf-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: var(--r-full);
+  background: linear-gradient(
+    to right,
+    var(--accent) var(--range-progress),
+    var(--border-strong) var(--range-progress)
+  );
+}
+
+.conf-slider::-moz-range-track {
+  height: 4px;
+  border-radius: var(--r-full);
+  background: var(--border-strong);
+}
+
+.conf-slider::-moz-range-progress {
+  height: 4px;
+  border-radius: var(--r-full);
+  background: var(--accent);
+}
+
+.conf-slider::-webkit-slider-thumb {
+  width: 13px;
+  height: 13px;
+  margin-top: -4.5px;
+  border: 2px solid var(--bg);
+  border-radius: var(--r-full);
+  background: var(--accent);
+  appearance: none;
+}
+
+.conf-slider::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  border: 2px solid var(--bg);
+  border-radius: var(--r-full);
+  background: var(--accent);
+}
+
+@media (width <= 1200px) {
+  .conf-label span {
+    display: none;
+  }
+
+  .conf-slider {
+    width: 72px;
+  }
+}

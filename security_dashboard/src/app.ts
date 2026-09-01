@@ -1,205 +1,261 @@
 /**
- * App orchestrator.
+ * Orquestador de la aplicación.
  *
- * Responsibilities:
- *  - Mount the UI shell and obtain typed DOM refs.
- *  - Initialise shared application state.
- *  - Define the shared `stopStream` cleanup routine.
- *  - Instantiate feature handlers.
- *  - Wire all DOM event listeners.
- *
- * This file intentionally contains no business or rendering logic —
- * it only coordinates the pieces defined in features/ and ui/.
+ * Sólo coordina: monta el shell, crea el estado, instancia las features y
+ * cablea los eventos del DOM. Ninguna lógica de negocio ni de pintado vive
+ * aquí — eso está en `features/` y `ui/`.
  */
 
+import { classifyFile, formatLabel, humanSize } from "./config/media";
 import { createAppState } from "./state/app.state";
-import { mountApp } from "./ui/refs";
-import { setStatus } from "./ui/components/status";
-import { showLiveBadge } from "./ui/components/live-badge";
-import { webcamBtnLabelStart } from "./ui/utils/icons";
-import { initHistoryPanel, openHistoryPanel } from "./ui/components/history-panel";
-
 import { createImageHandler } from "./features/image.feature";
-import { createVideoHandler } from "./features/video.feature";
-import { createWebcamHandler } from "./features/webcam.feature";
 import { createMultiCamHandler } from "./features/multicam.feature";
+import {
+  createCameraHandler,
+  createVideoHandler,
+  createYoutubeHandler,
+} from "./features/sources.feature";
+import type { FeatureContext } from "./features/context";
+import { initBackendPanel } from "./ui/components/backend-panel";
+import { initConfidenceControl } from "./ui/components/confidence-control";
+import { initHistoryPanel, openHistoryPanel } from "./ui/components/history-panel";
+import { showLiveBadge } from "./ui/components/live-badge";
+import { createModal } from "./ui/components/modal";
+import { clearPreview } from "./ui/components/preview";
+import { resetResults } from "./ui/components/results";
+import { initSourceTabs } from "./ui/components/source-tabs";
+import { setStageHeader, setStatus, setStoppable } from "./ui/components/status";
+import { StatsTracker } from "./ui/components/stats";
+import { mountApp } from "./ui/refs";
+import { truncateMiddle } from "./ui/utils/format";
+import { icon } from "./ui/utils/icons";
 
-// ── File type detection ────────────────────────────────────────────────────
+const IDLE_TITLE = "Sin fuente activa";
+const IDLE_SUBTITLE = "Elige un archivo, una cámara o una URL para empezar a analizar.";
 
-const VIDEO_EXTENSIONS = new Set([".mp4", ".avi", ".mov", ".mkv", ".webm", ".mpeg", ".mpg"]);
-
-const isVideoFile = (file: File): boolean => {
-  if (file.type.startsWith("video/")) return true;
-  const ext = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
-  return VIDEO_EXTENSIONS.has(ext);
-};
-
-// ── Entry point ────────────────────────────────────────────────────────────
+/** Etiqueta del botón de cámara según esté parada o corriendo. */
+const cameraButtonLabel = (running: boolean): string =>
+  running
+    ? `${icon("camera-off")}<span>Detener cámara</span>`
+    : `${icon("camera")}<span>Iniciar cámara</span>`;
 
 export const initApp = (): void => {
   const container = document.querySelector<HTMLDivElement>("#app");
-  if (!container) throw new Error("Root #app element not found");
+  if (!container) throw new Error("No se encontró el elemento raíz #app");
 
   const refs = mountApp(container);
   const state = createAppState();
+  const stats = new StatsTracker(refs);
 
-  // Initialise the history drawer (injects DOM once)
-  initHistoryPanel();
+  // ── Parada compartida ──────────────────────────────────────────────────
 
-  let stopMultiCam = (): void => {};
-
-  // ── Shared stream cleanup ──────────────────────────────────────────────
-
+  /**
+   * Cancela el stream en curso, cierra el acumulador pendiente y devuelve el
+   * escenario a su estado neutro. La invocan tanto el botón "Detener" como
+   * cualquier feature antes de tomar el escenario.
+   */
   const stopStream = (): void => {
-    // Finalise any in-progress stream accumulator before aborting
-    if (state.pendingAccumulator) {
-      state.pendingAccumulator.finalize();
-      state.pendingAccumulator = null;
-    }
+    state.pendingAccumulator?.finalize();
+    state.pendingAccumulator = null;
 
-    state.videoStreamAbort?.abort();
-    state.videoStreamAbort = null;
+    state.streamAbort?.abort();
+    state.streamAbort = null;
 
-    if (state.rafId !== null) {
-      cancelAnimationFrame(state.rafId);
-      state.rafId = null;
-    }
+    state.activeSource = null;
+    state.liveMode = false;
 
-    state.frameTimeline = [];
-
-    if (state.webcamModeActive) {
-      state.webcamModeActive = false;
-      state.canvasCtx = null;
-      showLiveBadge(refs.previewContainer, false);
-      refs.webcamBtn.classList.remove("active");
-      refs.webcamBtn.innerHTML = webcamBtnLabelStart();
-    }
-
-    if (state.multiCamActive) {
-      stopMultiCam();
-    }
+    showLiveBadge(refs.previewContainer, false);
+    setStoppable(refs, false);
+    stats.freeze();
+    syncCameraButton();
   };
 
-  // ── Feature handlers ───────────────────────────────────────────────────
+  const ctx: FeatureContext = { refs, state, stats, stopStream };
 
-  const handleImage   = createImageHandler(refs, state, stopStream);
-  const handleVideo   = createVideoHandler(refs, state, stopStream);
-  const handleWebcam  = createWebcamHandler(refs, state, stopStream);
-  const multiCamHandlers = createMultiCamHandler(refs, state, stopStream);
-  stopMultiCam = multiCamHandlers.stopAll;
+  // ── Features ───────────────────────────────────────────────────────────
 
-  // ── Unified file dispatcher ────────────────────────────────────────────
+  const handleImage = createImageHandler(ctx);
+  const handleVideo = createVideoHandler(ctx);
+  const handleYoutube = createYoutubeHandler(ctx);
+  const handleCamera = createCameraHandler(ctx);
+  const multiCam = createMultiCamHandler(ctx);
 
+  // ── Componentes con estado propio ──────────────────────────────────────
+
+  initHistoryPanel();
+  initSourceTabs(refs);
+  initConfidenceControl(refs);
+  const backend = initBackendPanel(refs);
+
+  const multiCamModal = createModal(refs.multiCamModal, { initialFocus: "#multi-yt-input" });
+
+  // ── Dispatcher de archivos ─────────────────────────────────────────────
+
+  /** Enruta el archivo a la feature de imagen o de video según su tipo. */
   const handleFile = (file: File | undefined): void => {
     if (!file) return;
-    if (isVideoFile(file)) {
-      handleVideo(file);
-    } else if (file.type.startsWith("image/")) {
-      void handleImage(file);
-    } else {
-      setStatus(refs, "Formato no soportado", false);
+
+    refs.fileMeta.textContent = `${truncateMiddle(file.name, 30)} · ${formatLabel(file)} · ${humanSize(file.size)}`;
+
+    switch (classifyFile(file)) {
+      case "video":
+        handleVideo(file);
+        break;
+      case "image":
+        void handleImage(file);
+        break;
+      default:
+        setStatus(refs, `Formato no reconocido: ${file.name}`, false);
     }
   };
 
-  // ── File input / drag-and-drop ─────────────────────────────────────────
+  // ── Entrada por archivo ────────────────────────────────────────────────
 
   refs.browseBtn.addEventListener("click", () => refs.fileInput.click());
-
-  refs.fileInput.addEventListener("change", (e) => {
-    handleFile((e.target as HTMLInputElement).files?.[0]);
+  refs.dropArea.addEventListener("click", () => refs.fileInput.click());
+  refs.dropArea.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      refs.fileInput.click();
+    }
   });
 
-  refs.dropArea.addEventListener("dragover", (e) => {
-    e.preventDefault();
-    refs.dropArea.classList.add("drag-over");
+  refs.fileInput.addEventListener("change", (event) => {
+    handleFile((event.target as HTMLInputElement).files?.[0]);
   });
 
-  ["dragleave", "dragend", "drop"].forEach((evt) =>
-    refs.dropArea.addEventListener(evt, () => refs.dropArea.classList.remove("drag-over"))
+  refs.dropArea.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    refs.dropArea.classList.add("is-dragging");
+  });
+
+  ["dragleave", "dragend", "drop"].forEach((eventName) =>
+    refs.dropArea.addEventListener(eventName, () => refs.dropArea.classList.remove("is-dragging")),
   );
 
-  refs.dropArea.addEventListener("drop", (e) => {
-    e.preventDefault();
-    handleFile(e.dataTransfer?.files?.[0]);
+  refs.dropArea.addEventListener("drop", (event) => {
+    event.preventDefault();
+    handleFile(event.dataTransfer?.files?.[0]);
   });
 
-  // ── Webcam button ──────────────────────────────────────────────────────
+  // ── Cámara ─────────────────────────────────────────────────────────────
 
-  refs.webcamBtn.addEventListener("click", () => handleWebcam());
+  function syncCameraButton(): void {
+    refs.webcamBtn.innerHTML = cameraButtonLabel(state.liveMode);
+    refs.webcamBtn.classList.toggle("is-active", state.liveMode);
+  }
 
-  // ── History button ────────────────────────────────────────────────────
+  refs.webcamBtn.addEventListener("click", () => {
+    handleCamera(refs.webcamSourceInput.value);
+    syncCameraButton();
+  });
+
+  // ── YouTube y URL ──────────────────────────────────────────────────────
+
+  const submitYoutube = (): void => {
+    if (!handleYoutube(refs.youtubeInput.value)) {
+      setStatus(refs, "Escribe una URL de YouTube", false);
+      refs.youtubeInput.focus();
+    }
+  };
+
+  const submitUrl = (): void => {
+    const source = refs.urlInput.value.trim();
+    if (!source) {
+      setStatus(refs, "Escribe la URL del stream", false);
+      refs.urlInput.focus();
+      return;
+    }
+    handleCamera(source);
+    syncCameraButton();
+  };
+
+  /** Enter en un campo equivale a pulsar su botón. */
+  const submitOnEnter = (input: HTMLInputElement, action: () => void): void => {
+    input.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      action();
+    });
+  };
+
+  refs.youtubeBtn.addEventListener("click", submitYoutube);
+  submitOnEnter(refs.youtubeInput, submitYoutube);
+
+  refs.urlBtn.addEventListener("click", submitUrl);
+  submitOnEnter(refs.urlInput, submitUrl);
+  submitOnEnter(refs.webcamSourceInput, () => refs.webcamBtn.click());
+
+  // ── Parada global ──────────────────────────────────────────────────────
+
+  refs.stopBtn.addEventListener("click", () => {
+    stopStream();
+    setStatus(refs, "Análisis detenido", false);
+  });
+
+  // ── Historial ──────────────────────────────────────────────────────────
 
   refs.historyBtn.addEventListener("click", () => openHistoryPanel());
 
-  // ── Multicamera modal controls ───────────────────────────────────────
+  // ── Multicámara ────────────────────────────────────────────────────────
 
-  const openMultiModal = (): void => {
-    refs.multiCamModal.classList.remove("hidden");
-    refs.multiCamModal.setAttribute("aria-hidden", "false");
+  refs.multiCamOpenBtn.addEventListener("click", () => multiCamModal.open());
+  refs.multiCamCloseBtn.addEventListener("click", () => multiCamModal.close());
+  refs.multiCamStopBtn.addEventListener("click", () => multiCam.stopAll());
+
+  /** Añade una fuente desde el modal y lo cierra si el valor era válido. */
+  const addFromInput = (input: HTMLInputElement, add: (value: string) => void): void => {
+    const value = input.value.trim();
+    if (!value) {
+      input.focus();
+      return;
+    }
+    add(value);
+    input.value = "";
+    multiCamModal.close();
   };
 
-  const closeMultiModal = (): void => {
-    refs.multiCamModal.classList.add("hidden");
-    refs.multiCamModal.setAttribute("aria-hidden", "true");
-  };
+  refs.multiCamYoutubeAddBtn.addEventListener("click", () =>
+    addFromInput(refs.multiCamYoutubeInput, multiCam.addFromYoutube),
+  );
+  submitOnEnter(refs.multiCamYoutubeInput, () =>
+    addFromInput(refs.multiCamYoutubeInput, multiCam.addFromYoutube),
+  );
 
-  refs.multiCamOpenBtn.addEventListener("click", openMultiModal);
-  refs.multiCamCloseBtn.addEventListener("click", closeMultiModal);
-  refs.multiCamModal.addEventListener("click", (e) => {
-    const target = e.target as HTMLElement;
-    if (target.dataset.close === "true") closeMultiModal();
-  });
-
-  refs.multiCamYoutubeAddBtn.addEventListener("click", () => {
-    multiCamHandlers.addFromYoutube(refs.multiCamYoutubeInput.value);
-    refs.multiCamYoutubeInput.value = "";
-    closeMultiModal();
-  });
-
-  refs.multiCamYoutubeInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      multiCamHandlers.addFromYoutube(refs.multiCamYoutubeInput.value);
-      refs.multiCamYoutubeInput.value = "";
-      closeMultiModal();
-    }
-  });
-
-  refs.multiCamUrlAddBtn.addEventListener("click", () => {
-    multiCamHandlers.addFromUrl(refs.multiCamUrlInput.value);
-    refs.multiCamUrlInput.value = "";
-    closeMultiModal();
-  });
-
-  refs.multiCamUrlInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      multiCamHandlers.addFromUrl(refs.multiCamUrlInput.value);
-      refs.multiCamUrlInput.value = "";
-      closeMultiModal();
-    }
-  });
+  refs.multiCamUrlAddBtn.addEventListener("click", () =>
+    addFromInput(refs.multiCamUrlInput, multiCam.addFromUrl),
+  );
+  submitOnEnter(refs.multiCamUrlInput, () =>
+    addFromInput(refs.multiCamUrlInput, multiCam.addFromUrl),
+  );
 
   refs.multiCamFileBrowseBtn.addEventListener("click", () => refs.multiCamFileInput.click());
 
   refs.multiCamFileInput.addEventListener("change", () => {
     const file = refs.multiCamFileInput.files?.[0];
-    refs.multiCamFileName.textContent = file ? file.name : "Sin archivo";
+    refs.multiCamFileName.textContent = file ? truncateMiddle(file.name, 24) : "Sin archivo";
   });
 
   refs.multiCamFileAddBtn.addEventListener("click", () => {
     const file = refs.multiCamFileInput.files?.[0];
     if (!file) {
-      setStatus(refs, "Selecciona un archivo", false);
+      setStatus(refs, "Selecciona un archivo primero", false);
+      refs.multiCamFileInput.click();
       return;
     }
-    multiCamHandlers.addFromFile(file);
+    multiCam.addFromFile(file);
     refs.multiCamFileInput.value = "";
     refs.multiCamFileName.textContent = "Sin archivo";
-    closeMultiModal();
+    multiCamModal.close();
   });
 
-  refs.multiCamStopBtn.addEventListener("click", () => stopMultiCam());
+  // ── Estado inicial ─────────────────────────────────────────────────────
 
-  // ── Initial status ─────────────────────────────────────────────────────
+  clearPreview(refs);
+  resetResults(refs);
+  setStageHeader(refs, IDLE_TITLE, IDLE_SUBTITLE);
+  setStatus(refs, "Esperando una fuente…");
+  syncCameraButton();
 
-  setStatus(refs, "Esperando archivo...");
+  void backend.refresh();
 };
